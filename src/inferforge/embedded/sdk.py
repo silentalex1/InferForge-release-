@@ -1,10 +1,14 @@
-(function (global) {
+from __future__ import annotations
+
+SITE_URL = "https://inferforge.org"
+
+SDK_JS = r"""(function (global) {
   "use strict";
 
-  var DEFAULT_ENDPOINT = "";
-  var DEFAULT_FALLBACK = "";
-  var DEFAULT_MODEL = "";
-  var DEFAULT_API_KEY = "";
+  var DEFAULT_ENDPOINT = "{ENDPOINT}";
+  var DEFAULT_FALLBACK = "{FALLBACK}";
+  var DEFAULT_MODEL = "{MODEL}";
+  var DEFAULT_API_KEY = "{API_KEY}";
 
   function clean(url) {
     return String(url || "").replace(/\/+$/, "");
@@ -263,3 +267,90 @@
     }
   } catch (err) {}
 })(typeof window !== "undefined" ? window : globalThis);
+"""
+
+MISSING_JS = r"""(function (global) {
+  "use strict";
+  var MODEL = "{MODEL}";
+  var SITE = "{SITE}";
+  var message =
+    "InferForge: '" + MODEL + "' is not published yet. " +
+    "Run: forge embedd " + MODEL + " --sdk";
+  global.InferForge = function () { throw new Error(message); };
+  global.InferForge.instance = null;
+  if (typeof console !== "undefined") console.error(message, SITE);
+  try {
+    var tag = document.currentScript;
+    var sel = null;
+    try { sel = new URL(tag.src, location.href).searchParams.get("mount"); } catch (err) {}
+    sel = sel || (tag && tag.getAttribute("data-mount")) || "";
+    if (sel) {
+      var show = function () {
+        var target = document.querySelector(sel);
+        if (target) target.textContent = message;
+      };
+      if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", show);
+      else show();
+    }
+  } catch (err) {}
+})(typeof window !== "undefined" ? window : globalThis);
+"""
+
+
+def render_sdk(model: str = "", endpoint: str = "", api_key: str = "", fallback: str = "") -> str:
+    return (
+        SDK_JS.replace("{ENDPOINT}", endpoint)
+        .replace("{FALLBACK}", fallback)
+        .replace("{MODEL}", model)
+        .replace("{API_KEY}", api_key)
+    )
+
+
+def render_missing_sdk(model: str = "", site: str = SITE_URL) -> str:
+    return MISSING_JS.replace("{MODEL}", model).replace("{SITE}", site)
+
+
+EMBED_SNIPPET = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>{model} - InferForge embed</title>
+<style>
+  body {{ font: 15px/1.5 system-ui, sans-serif; margin: 40px auto; max-width: 720px; padding: 0 20px; }}
+  #inferforge-chat {{ height: 380px; border: 1px solid rgba(127,127,127,.35); border-radius: 14px; padding: 14px; }}
+  pre {{ background: rgba(127,127,127,.12); padding: 14px; border-radius: 10px; overflow-x: auto; }}
+</style>
+</head>
+<body>
+<h1>{model}</h1>
+
+<script src="{sdk_url}"></script>
+<div id="inferforge-chat"></div>
+
+<h2>Paste this into any page</h2>
+<pre>&lt;script src="{sdk_url}"&gt;&lt;/script&gt;
+&lt;div id="inferforge-chat"&gt;&lt;/div&gt;</pre>
+
+<h2>Call it from JavaScript</h2>
+<pre>&lt;script src="{plain_url}"&gt;&lt;/script&gt;
+&lt;script type="module"&gt;
+  const ai = new InferForge({{ model: "{model}", apiKey: "{api_key}" }});
+  console.log(await ai.chat("Hello!"));
+&lt;/script&gt;</pre>
+</body>
+</html>
+"""
+
+
+def render_embed_html(model: str, endpoint: str, api_key: str = "") -> str:
+    base = f"{endpoint.rstrip('/')}/sdk/{model}.js"
+    key_part = f"?key={api_key}" if api_key else ""
+    plain_url = f"{base}{key_part}"
+    sdk_url = f"{base}{key_part}{'&' if key_part else '?'}mount=%23inferforge-chat"
+    return EMBED_SNIPPET.format(
+        model=model,
+        api_key=api_key,
+        sdk_url=sdk_url,
+        plain_url=plain_url,
+    )

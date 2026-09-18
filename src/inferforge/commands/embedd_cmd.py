@@ -8,21 +8,57 @@ import sys
 import time
 import uuid
 from pathlib import Path
-from typing import Any
 
 import click
 import requests
 
+from inferforge.commands.loader_templates import (
+    CLI_LOADER_TEMPLATE,
+    DISCORD_LOADER_TEMPLATE,
+    PYTHON_LOADER_LOCAL,
+    PYTHON_LOADER_TEMPLATE,
+    WEB_LOADER_TEMPLATE,
+)
+
+KEEPALIVE_SCRIPT = '''from __future__ import annotations
+
+import json
+import sys
+import time
+import urllib.request
+
+MODEL = "{model}"
+OLLAMA_HOST = "{ollama_host}"
+INTERVAL = {interval}
+
+
+def ping() -> bool:
+    try:
+        body = json.dumps({{"model": MODEL, "prompt": "", "keep_alive": -1, "stream": False}}).encode()
+        req = urllib.request.Request(OLLAMA_HOST + "/api/generate", data=body, headers={{"Content-Type": "application/json"}})
+        return urllib.request.urlopen(req, timeout=120).status == 200
+    except Exception:
+        return False
+
+
+def main() -> None:
+    print(f"keep-alive: {{MODEL}} @ {{OLLAMA_HOST}} every {{INTERVAL}}s — Ctrl+C to stop")
+    while True:
+        ok = ping()
+        print(("warm" if ok else "retry-failed"), flush=True)
+        time.sleep(INTERVAL)
+
+
+if __name__ == "__main__":
+    if len(sys.argv) > 1:
+        OLLAMA_HOST = sys.argv[1].rstrip("/")
+    if len(sys.argv) > 2:
+        INTERVAL = int(sys.argv[2])
+    main()
+'''
+from inferforge.core.app_detector import AdvancedAppDetector
 from inferforge.core.config import models_dir, ollama_models_dir
 from inferforge.core.registry import ModelRecord, Registry
-from inferforge.core.app_detector import AdvancedAppDetector, DetectionResult
-from inferforge.commands.loader_templates import (
-    PYTHON_LOADER_TEMPLATE,
-    PYTHON_LOADER_LOCAL,
-    WEB_LOADER_TEMPLATE,
-    DISCORD_LOADER_TEMPLATE,
-    CLI_LOADER_TEMPLATE
-)
 from inferforge.importers.ollama import _model_blob_from_manifest
 
 
@@ -53,7 +89,7 @@ def _resolve_source_blob(name: str, digest: str) -> Path | None:
     return None
 
 
-@click.command("embedd")
+@click.command("embedd", short_help="Embed a model — AI connected link/SDK for websites, or portable weights")
 @click.argument("model")
 @click.option("--force", is_flag=True, help="Force re-embedding if already embedded.")
 @click.option("--into-project", is_flag=True, help="Embed model into current project directory for portability.")
@@ -66,11 +102,217 @@ def _resolve_source_blob(name: str, digest: str) -> Path | None:
 @click.option("--reference-only", is_flag=True, help="Create model reference only without copying weights (GitHub-friendly).")
 @click.option("--auto-detect-url", is_flag=True, help="Auto-detect download URL from HuggingFace for reference-only mode.")
 @click.option("--verify", is_flag=True, help="Verify downloaded model integrity.")
-def embedd_command(model: str, force: bool, into_project: bool, project_path: str | None, project_type: str, quantize: str | None, split: bool, compress: bool, model_url: str | None, reference_only: bool, auto_detect_url: bool, verify: bool) -> None:
-    if into_project:
+@click.option("--sdk", is_flag=True, help="Publish a browser SDK for this model at inferforge.org/sdk/<model>.js.")
+@click.option("--endpoint", type=str, default=None, help="Upstream InferForge server URL serving the model (default: your `forge serve` host).")
+@click.option("--site", type=str, default=None, help="Site that hosts the SDK file (default: https://inferforge.org).")
+@click.option("--no-publish", is_flag=True, help="Generate the SDK files locally without publishing them to the site.")
+@click.option("--unpublish", is_flag=True, help="Remove this model's hosted SDK from the site.")
+@click.option("--rotate-key", is_flag=True, help="Issue a new embed key, invalidating the previous one.")
+def embedd_command(model: str, force: bool, into_project: bool, project_path: str | None, project_type: str, quantize: str | None, split: bool, compress: bool, model_url: str | None, reference_only: bool, auto_detect_url: bool, verify: bool, sdk: bool, endpoint: str | None, site: str | None, no_publish: bool, unpublish: bool, rotate_key: bool) -> None:
+    if unpublish:
+        _unpublish_sdk(model, site)
+    elif sdk:
+        _embed_sdk(model, project_path, endpoint, site, not no_publish, rotate_key)
+    elif into_project:
         _embed_into_project(model, force, project_path, project_type, quantize, split, compress, model_url, reference_only, auto_detect_url, verify)
     else:
         _embed_globally(model, force, quantize, split, compress)
+
+
+def _sdk_owner() -> str:
+    try:
+        from inferforge.core.auth import load_auth_state
+
+        state = load_auth_state()
+        if state.get("connected"):
+            return str(state.get("username") or "")
+    except Exception:
+        pass
+    return ""
+
+
+def _resolve_upstream(endpoint: str | None, settings: dict) -> str:
+    from inferforge.core.config import DEFAULT_HOST, DEFAULT_PORT
+
+    chosen = (endpoint or settings.get("public_endpoint") or "").strip().rstrip("/")
+    if chosen:
+        if not chosen.startswith(("http://", "https://")):
+            chosen = "https://" + chosen
+        return chosen
+    host = settings.get("host") or DEFAULT_HOST
+    port = settings.get("port") or DEFAULT_PORT
+    return f"http://{host}:{port}"
+
+
+def _embed_sdk(model: str, project_path: str | None, endpoint: str | None, site: str | None, publish: bool, rotate_key: bool) -> None:
+    from inferforge.core.config import load_settings, save_settings
+    from inferforge.embedded.publish import (
+        default_site,
+        is_local_endpoint,
+        new_embed_key,
+        new_publish_token,
+        publish_sdk,
+        sdk_slug,
+        sdk_url,
+    )
+    from inferforge.embedded.sdk import render_embed_html, render_sdk
+
+    reg = Registry()
+    record = reg.get(model)
+    if not record:
+        sys.stdout.write(f"Model not found: {model}\n")
+        sys.stdout.write("Available models:\n")
+        for m in reg.list():
+            sys.stdout.write(f"  - {m.name}\n")
+        sys.stdout.flush()
+        raise SystemExit(1)
+
+    settings = load_settings()
+    site_url = (site or settings.get("sdk_site") or default_site()).rstrip("/")
+    upstream = _resolve_upstream(endpoint, settings)
+    slug = sdk_slug(model)
+
+    always_on = list(settings.get("always_on_models") or [])
+    if model not in always_on:
+        always_on.append(model)
+    settings["always_on_models"] = always_on
+
+    embed_keys = dict(settings.get("embed_keys") or {})
+    embed_key = new_embed_key() if rotate_key else (embed_keys.get(model) or new_embed_key())
+    embed_keys[model] = embed_key
+    settings["embed_keys"] = embed_keys
+
+    publish_tokens = dict(settings.get("publish_tokens") or {})
+    publish_token = publish_tokens.get(slug) or new_publish_token()
+    publish_tokens[slug] = publish_token
+    settings["publish_tokens"] = publish_tokens
+    save_settings(settings)
+
+    hosted_url = sdk_url(site_url, slug)
+    connected_link = sdk_url(site_url, slug, embed_key, "%23inferforge-chat")
+    local_only = is_local_endpoint(upstream)
+
+    project_dir = Path(project_path) if project_path else Path.cwd()
+    sdk_dir = project_dir / "sdk" / slug
+    sdk_dir.mkdir(parents=True, exist_ok=True)
+
+    sdk_file = sdk_dir / f"{slug}.js"
+    sdk_file.write_text(
+        render_sdk(model=model, endpoint=site_url, api_key=embed_key, fallback=upstream),
+        encoding="utf-8",
+    )
+
+    html_file = sdk_dir / "ai-embed.html"
+    html_file.write_text(render_embed_html(slug, site_url, embed_key), encoding="utf-8")
+
+    ollama_host = (settings.get("ollama_host") or "http://127.0.0.1:11434").rstrip("/")
+    keepalive_file = sdk_dir / "ai-keepalive.py"
+    keepalive_file.write_text(
+        KEEPALIVE_SCRIPT.format(
+            model=record.ollama_name or model,
+            ollama_host=ollama_host,
+            interval=int(settings.get("keep_alive_interval", 240)),
+        ),
+        encoding="utf-8",
+    )
+
+    published = {"ok": False, "error": "skipped"}
+    if publish:
+        sys.stdout.write(f"Publishing {model} to {site_url} ...\n")
+        sys.stdout.flush()
+        published = publish_sdk(
+            site=site_url,
+            model=model,
+            slug=slug,
+            embed_key=embed_key,
+            publish_token=publish_token,
+            endpoint=upstream,
+            fallback=upstream,
+            owner=_sdk_owner(),
+        )
+
+    config = {
+        "model": model,
+        "slug": slug,
+        "site": site_url,
+        "upstream": upstream,
+        "mode": "sdk",
+        "sdk_file": str(sdk_file),
+        "hosted_sdk_url": hosted_url,
+        "connected_link": connected_link,
+        "embed_key": embed_key,
+        "published": bool(published.get("ok")),
+        "publish_error": "" if published.get("ok") else str(published.get("error") or ""),
+        "forge_version": "0.2.0",
+        "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "always_on": True,
+        "keepalive_script": str(keepalive_file),
+    }
+    (sdk_dir / "sdk-config.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
+
+    sys.stdout.write(f"\nSDK ready for {model}\n")
+    sys.stdout.write(f"  Hosted at:     {hosted_url}\n")
+    sys.stdout.write(f"  Local copy:    {sdk_file}\n")
+    sys.stdout.write(f"  Embed snippet: {html_file}\n")
+    sys.stdout.write(f"  Config:        {sdk_dir / 'sdk-config.json'}\n")
+    sys.stdout.write(f"  Keep-alive:    {keepalive_file}\n")
+    sys.stdout.write(f"  Upstream:      {upstream}\n")
+    sys.stdout.write(f"  Embed key:     {embed_key}\n")
+
+    if publish and published.get("ok"):
+        sys.stdout.write(f"\nPublished. {hosted_url} is live.\n")
+    elif publish:
+        sys.stdout.write(f"\nPublish failed: {published.get('error')}\n")
+        sys.stdout.write(f"  The hosted link stays offline until publishing succeeds. Retry: forge embedd {model} --sdk\n")
+    else:
+        sys.stdout.write("\nNot published (--no-publish). Ship the local copy yourself.\n")
+
+    sys.stdout.write("\nPaste into any HTML page:\n")
+    sys.stdout.write(f'  <script src="{connected_link}"></script>\n')
+    sys.stdout.write('  <div id="inferforge-chat"></div>\n')
+    sys.stdout.write("\nOr drive it from JavaScript:\n")
+    sys.stdout.write(f'  <script src="{sdk_url(site_url, slug, embed_key)}"></script>\n')
+    sys.stdout.write("  <script type=\"module\">\n")
+    sys.stdout.write("    const reply = await InferForge.instance.chat('hello');\n")
+    sys.stdout.write("  </script>\n")
+    sys.stdout.write("\nSelf-hosted fallback:\n")
+    sys.stdout.write(f'  <script src="./{sdk_file.name}" data-key="{embed_key}" data-mount="#inferforge-chat"></script>\n')
+    sys.stdout.write(f"\nAlways-on: {model} is registered in always_on_models, so `forge serve` keeps it loaded.\n")
+    sys.stdout.write(f"  Talking to Ollama directly? run:  python {keepalive_file}\n")
+    if local_only:
+        sys.stdout.write(
+            f"\nUpstream {upstream} is local, so {site_url} cannot reach it from the internet.\n"
+            "  Visitors on other machines will see the model as offline.\n"
+            f"  Expose `forge serve` on a public HTTPS URL, then:  forge embedd {model} --sdk --endpoint https://your-public-url\n"
+        )
+    sys.stdout.flush()
+
+
+def _unpublish_sdk(model: str, site: str | None) -> None:
+    from inferforge.core.config import load_settings, save_settings
+    from inferforge.embedded.publish import default_site, sdk_slug, unpublish_sdk
+
+    settings = load_settings()
+    site_url = (site or settings.get("sdk_site") or default_site()).rstrip("/")
+    slug = sdk_slug(model)
+    publish_tokens = dict(settings.get("publish_tokens") or {})
+    token = publish_tokens.get(slug)
+    if not token:
+        sys.stdout.write(f"{model} was never published from this machine.\n")
+        sys.stdout.flush()
+        raise SystemExit(1)
+
+    result = unpublish_sdk(site_url, slug, token)
+    if not result.get("ok"):
+        sys.stdout.write(f"Unpublish failed: {result.get('error')}\n")
+        sys.stdout.flush()
+        raise SystemExit(1)
+
+    publish_tokens.pop(slug, None)
+    settings["publish_tokens"] = publish_tokens
+    save_settings(settings)
+    sys.stdout.write(f"Removed {site_url}/sdk/{slug}.js\n")
+    sys.stdout.flush()
 
 
 def _embed_into_project(model: str, force: bool, project_path: str | None, project_type: str, quantize: str | None, split: bool, compress: bool, model_url: str | None, reference_only: bool, auto_detect_url: bool, verify: bool) -> None:
@@ -94,7 +336,7 @@ def _embed_into_project(model: str, force: bool, project_path: str | None, proje
         detector = AdvancedAppDetector()
         detection_result = detector.detect_app(project_dir)
         
-        sys.stdout.write(f"Detection Results:\n")
+        sys.stdout.write("Detection Results:\n")
         sys.stdout.write(f"  App Type: {detection_result.app_type}\n")
         sys.stdout.write(f"  Confidence: {detection_result.confidence:.2%}\n")
         sys.stdout.write(f"  Languages: {', '.join(detection_result.detected_languages) or 'None'}\n")
@@ -145,7 +387,7 @@ def _embed_into_project(model: str, force: bool, project_path: str | None, proje
     if reference_only or model_url:
         download_url = model_url or record.meta.get("download_url", "")
         if not download_url:
-            sys.stdout.write(f"No download URL available. Use --model-url to specify one.\n")
+            sys.stdout.write("No download URL available. Use --model-url to specify one.\n")
             sys.stdout.flush()
             raise SystemExit(1)
         
@@ -168,11 +410,11 @@ def _embed_into_project(model: str, force: bool, project_path: str | None, proje
         }
     else:
         if target_file.exists() and not force:
-            sys.stdout.write(f"Model already embedded in project. Use --force to re-embed.\n")
+            sys.stdout.write("Model already embedded in project. Use --force to re-embed.\n")
             sys.stdout.flush()
             raise SystemExit(1)
         
-        sys.stdout.write(f"Copying model file to project...\n")
+        sys.stdout.write("Copying model file to project...\n")
         sys.stdout.flush()
         shutil.copy2(source_blob, target_file)
         sys.stdout.write(f"Model file copied: {target_file}\n")
@@ -180,12 +422,12 @@ def _embed_into_project(model: str, force: bool, project_path: str | None, proje
         model_size_gb = target_file.stat().st_size / (1024**3)
         
         if verify:
-            sys.stdout.write(f"Verifying model integrity...\n")
+            sys.stdout.write("Verifying model integrity...\n")
             sys.stdout.flush()
             if _verify_model_integrity(target_file, record):
-                sys.stdout.write(f"Model verification passed.\n")
+                sys.stdout.write("Model verification passed.\n")
             else:
-                sys.stdout.write(f"Model verification failed.\n")
+                sys.stdout.write("Model verification failed.\n")
                 sys.stdout.flush()
         
         project_config = {
@@ -228,24 +470,24 @@ def _embed_into_project(model: str, force: bool, project_path: str | None, proje
         _compress_model(target_file)
         model_size_gb = target_file.stat().st_size / (1024**3)
     
-    sys.stdout.write(f"\nModel successfully embedded into project!\n")
+    sys.stdout.write("\nModel successfully embedded into project!\n")
     sys.stdout.write(f"  Model: {model}\n")
     sys.stdout.write(f"  Location: {models_dir}\n")
     if reference_only:
-        sys.stdout.write(f"  Mode: Reference-only (GitHub-friendly, no model file included)\n")
+        sys.stdout.write("  Mode: Reference-only (GitHub-friendly, no model file included)\n")
         sys.stdout.write(f"  Download URL: {project_config['download_url']}\n")
     else:
         sys.stdout.write(f"  Size: {model_size_gb:.2f} GB\n")
-        sys.stdout.write(f"  Mode: Portable (works without Forge)\n")
+        sys.stdout.write("  Mode: Portable (works without Forge)\n")
     sys.stdout.write(f"  Project Type: {project_type}\n")
     if quantize:
         sys.stdout.write(f"  Quantized: {quantize}\n")
     if split:
-        sys.stdout.write(f"  Split: Yes\n")
+        sys.stdout.write("  Split: Yes\n")
     if compress:
-        sys.stdout.write(f"  Compressed: Yes\n")
+        sys.stdout.write("  Compressed: Yes\n")
     if verify:
-        sys.stdout.write(f"  Verified: Yes\n")
+        sys.stdout.write("  Verified: Yes\n")
     sys.stdout.flush()
 
 
@@ -434,8 +676,8 @@ class NodeAI {{
     chat(message, callback) {{
         const python = spawn('python', ['-c', `
 from llama_cpp import Llama
-llm = Llama(model_path="{this.modelPath}", n_ctx=2048, n_gpu_layers=-1, verbose=False)
-response = llm("{message}", max_tokens=256, echo=False)
+llm = Llama(model_path=${{JSON.stringify(this.modelPath)}}, n_ctx=2048, n_gpu_layers=-1, verbose=False)
+response = llm(${{JSON.stringify(message)}}, max_tokens=256, echo=False)
 print(response["choices"][0]["text"])
 `]);
         
@@ -552,7 +794,7 @@ This project uses reference-only mode. The model will be downloaded on first run
 No large model files are included in this repository, making it GitHub-friendly.
 '''
     else:
-        readme_content += f'''
+        readme_content += '''
 The model is embedded directly in this project. No download required.
 Works completely offline without any servers or daemons.
 '''
@@ -772,8 +1014,8 @@ def _embed_globally(model: str, force: bool, quantize: str | None, split: bool, 
     if quantize:
         sys.stdout.write(f"  Quantized: {quantize}\n")
     if split:
-        sys.stdout.write(f"  Split: Yes\n")
+        sys.stdout.write("  Split: Yes\n")
     if compress:
-        sys.stdout.write(f"  Compressed: Yes\n")
+        sys.stdout.write("  Compressed: Yes\n")
     sys.stdout.write(f"\nUse with: run {model}\n")
     sys.stdout.flush()

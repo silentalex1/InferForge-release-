@@ -1,10 +1,10 @@
-(function (global) {
+export const SDK_JS = String.raw`(function (global) {
   "use strict";
 
-  var DEFAULT_ENDPOINT = "";
-  var DEFAULT_FALLBACK = "";
-  var DEFAULT_MODEL = "";
-  var DEFAULT_API_KEY = "";
+  var DEFAULT_ENDPOINT = "{ENDPOINT}";
+  var DEFAULT_FALLBACK = "{FALLBACK}";
+  var DEFAULT_MODEL = "{MODEL}";
+  var DEFAULT_API_KEY = "{API_KEY}";
 
   function clean(url) {
     return String(url || "").replace(/\/+$/, "");
@@ -263,3 +263,31 @@
     }
   } catch (err) {}
 })(typeof window !== "undefined" ? window : globalThis);
+`
+
+export const MISSING_JS = String.raw`(function (global) {
+  "use strict";
+  var MODEL = "{MODEL}";
+  var SITE = "{SITE}";
+  var message =
+    "InferForge: '" + MODEL + "' is not published yet. " +
+    "Run: forge embedd " + MODEL + " --sdk";
+  global.InferForge = function () { throw new Error(message); };
+  global.InferForge.instance = null;
+  if (typeof console !== "undefined") console.error(message, SITE);
+  try {
+    var tag = document.currentScript;
+    var sel = null;
+    try { sel = new URL(tag.src, location.href).searchParams.get("mount"); } catch (err) {}
+    sel = sel || (tag && tag.getAttribute("data-mount")) || "";
+    if (sel) {
+      var show = function () {
+        var target = document.querySelector(sel);
+        if (target) target.textContent = message;
+      };
+      if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", show);
+      else show();
+    }
+  } catch (err) {}
+})(typeof window !== "undefined" ? window : globalThis);
+`

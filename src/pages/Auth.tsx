@@ -48,7 +48,7 @@ export default function Auth({ mode }: { mode: Mode }) {
     setTimeout(() => setSending(false), 600)
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
     if (!username.trim()) { setError('Enter account username.'); return }
@@ -75,7 +75,7 @@ export default function Auth({ mode }: { mode: Mode }) {
       setTimeout(() => window.location.reload(), 1100)
       return
     } else {
-      const res = login(username.trim(), password)
+      const res = await login(username.trim(), password)
       if (!res.ok) { setError(res.error || 'Login failed.'); return }
       setValidated(true)
       setSuccess('Logged in successfully!')

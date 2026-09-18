@@ -4,7 +4,7 @@ import time
 import uuid
 from typing import Any, AsyncIterator, Literal
 
-from fastapi import FastAPI, HTTPException, Depends, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -15,7 +15,7 @@ from inferforge.engine import ChatMessage, get_router
 from inferforge.model.identity import INFERFORGE_BETA
 
 try:
-    from inferforge.server.auth import verify_api_key, check_rate_limit
+    from inferforge.server.auth import check_rate_limit, verify_api_key
     AUTH_AVAILABLE = True
 except ImportError:
     AUTH_AVAILABLE = False
@@ -57,6 +57,30 @@ def _resolve_model_name(name: str) -> str:
     return name
 
 
+def _authorize_chat(request: Request, model: str) -> None:
+    """Accept a real API key, or a per-model embed key issued by `forge embedd --sdk`.
+
+    Embed keys (``sk-embed-*``) only authorize chat on the model they were
+    generated for — they cannot list models, embed, or hit other endpoints.
+    """
+    if not AUTH_AVAILABLE:
+        return
+    from inferforge.core.config import load_settings
+    from inferforge.server.auth import get_api_key_manager
+
+    key = ""
+    auth = request.headers.get("authorization", "")
+    if auth.startswith("Bearer "):
+        key = auth[7:]
+    key = key or request.headers.get("x-api-key", "") or request.headers.get("api-key", "")
+    if key and get_api_key_manager().validate_key(key):
+        return
+    embed_keys = load_settings().get("embed_keys") or {}
+    if key and embed_keys.get(model) == key:
+        return
+    raise HTTPException(status_code=401, detail="Missing or invalid API key")
+
+
 @app.get("/")
 def root() -> dict[str, Any]:
     return {
@@ -72,6 +96,38 @@ def root() -> dict[str, Any]:
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "version": __version__}
+
+
+@app.get("/sdk/inferforge.js")
+def sdk_js(request: Request):
+    from fastapi.responses import Response
+
+    from inferforge.embedded.sdk import render_sdk
+
+    origin = str(request.base_url).rstrip("/")
+    return Response(render_sdk(endpoint=origin), media_type="application/javascript")
+
+
+@app.get("/sdk/{model_name}.js")
+def sdk_js_for_model(model_name: str, request: Request, key: str = ""):
+    from fastapi.responses import Response
+
+    from inferforge.embedded.publish import sdk_slug
+    from inferforge.embedded.sdk import render_sdk
+
+    origin = str(request.base_url).rstrip("/")
+    resolved = model_name
+    wanted = sdk_slug(model_name)
+    for record in Registry().list():
+        if sdk_slug(record.name) == wanted:
+            resolved = record.name
+            break
+
+    return Response(
+        render_sdk(model=resolved, endpoint=origin, api_key=key),
+        media_type="application/javascript",
+        headers={"Access-Control-Allow-Origin": "*", "Cache-Control": "no-store"},
+    )
 
 
 @app.get("/api/tags")
@@ -166,8 +222,9 @@ async def create_embeddings(body: EmbeddingRequest, api_key: str = Depends(verif
             
         except ImportError:
             # Fallback: Use simple TF-IDF or word averaging if sentence-transformers not available
-            import numpy as np
             from collections import Counter
+
+            import numpy as np
             
             texts = [body.input] if isinstance(body.input, str) else body.input
             
@@ -266,9 +323,10 @@ async def stream_chat_response(model_name: str, messages: list[ChatMessage], opt
 
 
 @app.post("/v1/chat/completions", response_model=None)
-async def chat_completions(body: ChatCompletionRequest, api_key: str = Depends(verify_api_key) if AUTH_AVAILABLE else None):
+async def chat_completions(body: ChatCompletionRequest, request: Request):
+    model_name = _resolve_model_name(body.model)
+    _authorize_chat(request, model_name)
     if body.stream:
-        model_name = _resolve_model_name(body.model)
         messages = [ChatMessage(role=m.role, content=m.content) for m in body.messages]
         options: dict[str, Any] = {}
         if body.temperature is not None:
@@ -281,7 +339,6 @@ async def chat_completions(body: ChatCompletionRequest, api_key: str = Depends(v
             media_type="text/event-stream"
         )
 
-    model_name = _resolve_model_name(body.model)
     reg = Registry()
     record = reg.get(model_name)
     if record is None:
@@ -322,8 +379,9 @@ async def chat_completions(body: ChatCompletionRequest, api_key: str = Depends(v
 
 
 @app.post("/api/chat")
-def ollama_chat(body: OllamaChatRequest, api_key: str = Depends(verify_api_key) if AUTH_AVAILABLE else None) -> dict[str, Any]:
+def ollama_chat(body: OllamaChatRequest, request: Request) -> dict[str, Any]:
     model_name = _resolve_model_name(body.model)
+    _authorize_chat(request, model_name)
     reg = Registry()
     record = reg.get(model_name)
     if record is None:
