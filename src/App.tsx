@@ -7,7 +7,8 @@ import Models from './pages/Models'
 import Docs from './pages/Docs'
 import Chat from './pages/Chat'
 import Pricing from './pages/Pricing'
-import Auth from './pages/Auth'
+import Login from './pages/Login'
+import CreateAccount from './pages/CreateAccount'
 import Account from './pages/Account'
 import UserDashboard from './pages/UserDashboard'
 import OurModels from './pages/OurModels'
@@ -21,7 +22,6 @@ export default function App() {
     return <Chat />
   }
 
-  const isHome = location.pathname === '/'
   return (
     <div className="min-h-screen flex flex-col bg-[#0e1b3d] text-white antialiased">
       <Navbar />
@@ -32,9 +32,11 @@ export default function App() {
           <Route path="/models" element={<Models />} />
           <Route path="/docs" element={<Docs />} />
           <Route path="/pricing" element={<Pricing />} />
-          <Route path="/register" element={<Auth mode="register" />} />
-          <Route path="/registar" element={<Navigate to="/register" replace />} />
-          <Route path="/login" element={<Auth mode="login" />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/create-account" element={<CreateAccount />} />
+          <Route path="/register" element={<Navigate to="/create-account" replace />} />
+          <Route path="/registar" element={<Navigate to="/create-account" replace />} />
+          <Route path="/signup" element={<Navigate to="/create-account" replace />} />
           <Route path="/account" element={<Account />} />
           <Route path="/dashboard/:username" element={<UserDashboard />} />
           <Route path="/our-models" element={<OurModels />} />
@@ -44,7 +46,7 @@ export default function App() {
           <Route path="/v1/chatui" element={<Chat />} />
         </Routes>
       </main>
-      {!isHome && <Footer />}
+      <Footer />
     </div>
   )
 }
