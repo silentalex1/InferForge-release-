@@ -115,6 +115,77 @@ export async function listRecords(kv: any, limit = 200): Promise<SdkRecord[]> {
   return out
 }
 
+export interface SdkStats {
+  slug: string
+  total: number
+  ok: number
+  failed: number
+  days: Record<string, number>
+  last_request_at: string | null
+  last_status: number | null
+}
+
+export const STATS_PREFIX = "stats:"
+
+export const DAY_WINDOW = 14
+
+export function emptyStats(slug: string): SdkStats {
+  return { slug, total: 0, ok: 0, failed: 0, days: {}, last_request_at: null, last_status: null }
+}
+
+export function today(): string {
+  return new Date().toISOString().slice(0, 10)
+}
+
+export async function readStats(kv: any, slug: string): Promise<SdkStats> {
+  if (!kv) return emptyStats(slug)
+  const raw = await kv.get(STATS_PREFIX + slug)
+  if (!raw) return emptyStats(slug)
+  try {
+    return { ...emptyStats(slug), ...(JSON.parse(raw) as SdkStats) }
+  } catch {
+    return emptyStats(slug)
+  }
+}
+
+export async function bumpStats(kv: any, slug: string, status: number): Promise<void> {
+  if (!kv) return
+  const stats = await readStats(kv, slug)
+  const day = today()
+  const ok = status >= 200 && status < 400
+
+  stats.total += 1
+  if (ok) stats.ok += 1
+  else stats.failed += 1
+  stats.days[day] = (stats.days[day] || 0) + 1
+  stats.last_request_at = new Date().toISOString()
+  stats.last_status = status
+
+  const keys = Object.keys(stats.days).sort()
+  while (keys.length > DAY_WINDOW) {
+    const oldest = keys.shift()
+    if (oldest) delete stats.days[oldest]
+  }
+
+  await kv.put(STATS_PREFIX + slug, JSON.stringify(stats))
+}
+
+export async function deleteStats(kv: any, slug: string): Promise<void> {
+  if (!kv) return
+  await kv.delete(STATS_PREFIX + slug)
+}
+
+export async function probeUpstream(endpoint: string, timeoutMs = 4000): Promise<boolean> {
+  const url = cleanEndpoint(endpoint)
+  if (!isHttpUrl(url)) return false
+  try {
+    const res = await fetch(url + "/health", { signal: AbortSignal.timeout(timeoutMs) })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
 export function publicView(record: SdkRecord) {
   return {
     model: record.model,

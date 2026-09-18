@@ -3,7 +3,7 @@ import { Search } from 'lucide-react'
 import { useState } from 'react'
 
 const MODELS = [
-  { name: 'inferforge-beta', family: 'inferforge', params: '14.8B', desc: 'Flagship local model — chat, code, reasoning.' },
+  { name: 'inferforge-beta', family: 'inferforge', params: '14.8B', desc: 'Flagship local model for chat, code and reasoning.' },
   { name: 'qwen2.5-coder:7b', family: 'qwen', params: '7B', desc: 'Code generation and review.' },
   { name: 'llama3.1:8b', family: 'llama', params: '8B', desc: 'General-purpose instruction model.' },
   { name: 'mistral:7b', family: 'mistral', params: '7B', desc: 'Fast chat and summarization.' },

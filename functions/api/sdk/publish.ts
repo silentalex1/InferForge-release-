@@ -2,6 +2,7 @@ import {
   cleanEndpoint,
   corsHeaders,
   deleteRecord,
+  deleteStats,
   hashToken,
   isHttpUrl,
   json,
@@ -57,6 +58,7 @@ export async function onRequest(context: any): Promise<Response> {
       return json({ error: "forbidden", message: "This publish token does not own '" + slug + "'." }, 403)
     }
     await deleteRecord(kv, slug)
+    await deleteStats(kv, slug)
     return json({ ok: true, slug })
   }
 

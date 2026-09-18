@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, NavLink, useLocation } from 'react-router-dom'
 import { Menu, X } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
+import UserMenu from './UserMenu'
 
 const links = [
   { to: '/docs', label: 'Docs' },
@@ -12,7 +13,7 @@ const links = [
 
 export default function Navbar() {
   const [open, setOpen] = useState(false)
-  const { user } = useAuth()
+  const { user, logout } = useAuth()
   const location = useLocation()
 
   useEffect(() => {
@@ -46,12 +47,7 @@ export default function Navbar() {
 
           <div className="hidden items-center gap-3 md:flex">
             {user ? (
-              <Link
-                to="/account"
-                className="rounded-lg border border-white/15 px-4 py-2 text-[14px] font-semibold text-white/85 transition hover:border-white/30 hover:bg-white/5"
-              >
-                {user.username}
-              </Link>
+              <UserMenu />
             ) : (
               <>
                 <Link
@@ -95,12 +91,28 @@ export default function Navbar() {
             ))}
             <div className="mt-3 flex flex-col gap-2 border-t border-white/[0.07] pt-4">
               {user ? (
-                <Link
-                  to="/account"
-                  className="rounded-lg border border-white/15 px-4 py-2.5 text-center text-[15px] font-semibold text-white/85"
-                >
-                  {user.username}
-                </Link>
+                <>
+                  <p className="px-1 pb-1 text-[12px] text-white/35">Signed in as {user.username}</p>
+                  <Link
+                    to={`/dashboard/${encodeURIComponent(user.username)}`}
+                    className="rounded-lg bg-amber-400 px-4 py-2.5 text-center text-[15px] font-semibold text-[#0e1b3d]"
+                  >
+                    Dashboard
+                  </Link>
+                  <Link
+                    to="/account"
+                    className="rounded-lg border border-white/15 px-4 py-2.5 text-center text-[15px] font-semibold text-white/85"
+                  >
+                    Account
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={logout}
+                    className="rounded-lg px-4 py-2.5 text-center text-[15px] font-medium text-white/55"
+                  >
+                    Log out
+                  </button>
+                </>
               ) : (
                 <>
                   <Link

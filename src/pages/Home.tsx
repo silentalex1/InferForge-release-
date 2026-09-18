@@ -41,7 +41,7 @@ const capabilities: Capability[] = [
     icon: Play,
     command: 'forge run <model>',
     title: 'Run models',
-    body: 'Execute and chat with AI models locally. One router picks the right backend per model — Ollama tags, native GGUF, HuggingFace directories, or a remote endpoint.',
+    body: 'Execute and chat with AI models locally. One router picks the right backend per model: Ollama tags, native GGUF, HuggingFace directories, or a remote endpoint.',
   },
   {
     icon: Cpu,
@@ -71,7 +71,7 @@ const capabilities: Capability[] = [
     icon: Bot,
     command: 'forge test --agent',
     title: 'Agents that act',
-    body: 'Models call real tools — read files, edit them, run commands, hit the web — inside a sandbox with workspace limits, consent prompts and an audit log.',
+    body: 'Models call real tools (read files, edit them, run commands, hit the web) inside a sandbox with workspace limits, consent prompts and an audit log.',
   },
 ]
 
@@ -133,7 +133,7 @@ const tiers: Tier[] = [
     name: 'Beta-gated',
     dot: 'bg-amber-400',
     ring: 'border-amber-400/25 bg-amber-400/[0.06]',
-    items: 'train, merge, nexara, benchmark, optimize, test, monitor, web, plugin, create, checkpoint — all behind forge --beta',
+    items: 'train, merge, nexara, benchmark, optimize, test, monitor, web, plugin, create, checkpoint, all behind the beta flag',
   },
   {
     name: 'Written, unproven',
@@ -173,7 +173,7 @@ export default function Home() {
           <p className="mt-6 max-w-2xl text-[17px] leading-relaxed text-white/60 md:text-[19px]">
             InferForge is a local AI platform and CLI for running, training, merging and deploying
             large language models on your own machine. One <span className="font-mono text-amber-200">forge</span> command
-            covers the whole path — a self-hosted model runner, a fine-tuning engine and an agent
+            covers the whole path: a self-hosted model runner, a fine-tuning engine and an agent
             runtime in a single tool.
           </p>
 

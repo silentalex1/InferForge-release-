@@ -1,5 +1,6 @@
 import {
   bearer,
+  bumpStats,
   cleanEndpoint,
   corsHeaders,
   isHttpUrl,
@@ -62,11 +63,20 @@ export async function onRequest(context: any): Promise<Response> {
     return json({ error: "invalid-key", message: "The embed key does not match this model." }, 401)
   }
 
+  const slug = record.slug || slugify(model)
+  const track = (status: number) => {
+    if (typeof context.waitUntil === "function") {
+      context.waitUntil(bumpStats(context.env.INFERFORGE_SDK, slug, status))
+    }
+  }
+
   const upstream = cleanEndpoint(record.endpoint)
   if (!isHttpUrl(upstream)) {
+    track(502)
     return json({ error: "no-upstream", message: "This model has no reachable server registered." }, 502)
   }
   if (isPrivateHost(upstream)) {
+    track(502)
     return json(
       {
         error: "upstream-local",
@@ -90,6 +100,7 @@ export async function onRequest(context: any): Promise<Response> {
       body: JSON.stringify({ ...body, model: record.model || model }),
     })
   } catch (err: any) {
+    track(502)
     return json(
       {
         error: "upstream-unreachable",
@@ -98,6 +109,8 @@ export async function onRequest(context: any): Promise<Response> {
       502
     )
   }
+
+  track(upstreamResponse.status)
 
   const headers = corsHeaders({
     "Content-Type": upstreamResponse.headers.get("content-type") || "application/json; charset=utf-8",

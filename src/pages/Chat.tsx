@@ -159,7 +159,7 @@ export default function Chat() {
           ...t,
           messages: t.messages.map(m =>
             m.id === assistantMsg.id
-              ? { ...m, content: 'Ready when you are — ask InferForge anything.' }
+              ? { ...m, content: 'Ready when you are. Ask InferForge anything.' }
               : m
           ),
         }))
