@@ -36,20 +36,32 @@ class OllamaEngine(ChatEngine):
         host: str | None = None,
         timeout: float = 600.0,
         retries: int = 3,
+        keep_alive: int | str | None = None,
     ) -> None:
         settings = load_settings()
         self.host = (host or settings.get("ollama_host") or "http://127.0.0.1:11434").rstrip("/")
         self.model_name = model.ollama_name or model.name
         self.timeout = timeout
         self.retries = max(1, retries)
+        always_on = set(settings.get("always_on_models") or [])
+        if keep_alive is not None:
+            self.keep_alive = keep_alive
+        else:
+            self.keep_alive = -1 if (model.name in always_on or self.model_name in always_on) else None
         self._client = httpx.Client(base_url=self.host, timeout=timeout)
         self._ensure_reachable()
+
+    @property
+    def client(self) -> httpx.Client:
+        if getattr(self._client, "is_closed", False):
+            self._client = httpx.Client(base_url=self.host, timeout=self.timeout)
+        return self._client
 
     def _ensure_reachable(self) -> None:
         last_err: Exception | None = None
         for attempt in range(1, self.retries + 1):
             try:
-                r = self._client.get("/api/tags", timeout=5.0)
+                r = self.client.get("/api/tags", timeout=5.0)
                 r.raise_for_status()
                 return
             except Exception as e:
@@ -66,8 +78,8 @@ class OllamaEngine(ChatEngine):
         for attempt in range(1, self.retries + 1):
             try:
                 if stream:
-                    return self._client.stream("POST", "/api/chat", json=payload, timeout=self.timeout)
-                r = self._client.post("/api/chat", json=payload, timeout=self.timeout)
+                    return self.client.stream("POST", "/api/chat", json=payload, timeout=self.timeout)
+                r = self.client.post("/api/chat", json=payload, timeout=self.timeout)
                 r.raise_for_status()
                 return r
             except Exception as e:
@@ -89,6 +101,8 @@ class OllamaEngine(ChatEngine):
             "messages": [{"role": m.role, "content": m.content} for m in messages],
             "stream": False,
         }
+        if self.keep_alive is not None:
+            payload["keep_alive"] = self.keep_alive
         if system:
             payload["system"] = system
         ollama_options = _build_ollama_options(options)
@@ -109,6 +123,8 @@ class OllamaEngine(ChatEngine):
             "messages": [{"role": m.role, "content": m.content} for m in messages],
             "stream": True,
         }
+        if self.keep_alive is not None:
+            payload["keep_alive"] = self.keep_alive
         if system:
             payload["system"] = system
         ollama_options = _build_ollama_options(options)
@@ -118,7 +134,7 @@ class OllamaEngine(ChatEngine):
         last_err: Exception | None = None
         for attempt in range(1, self.retries + 1):
             try:
-                with self._client.stream("POST", "/api/chat", json=payload, timeout=self.timeout) as resp:
+                with self.client.stream("POST", "/api/chat", json=payload, timeout=self.timeout) as resp:
                     resp.raise_for_status()
                     for line in resp.iter_lines():
                         if not line:
@@ -139,6 +155,34 @@ class OllamaEngine(ChatEngine):
                     time.sleep(0.5 * attempt)
                     continue
                 raise RuntimeError(f"Ollama stream error: {last_err}") from last_err
+
+    def load_model(self, keep_alive: int | str = -1) -> bool:
+        try:
+            r = self.client.post(
+                "/api/generate",
+                json={"model": self.model_name, "prompt": "", "keep_alive": keep_alive, "stream": False},
+                timeout=self.timeout,
+            )
+            r.raise_for_status()
+            return True
+        except Exception:
+            try:
+                self.chat([ChatMessage(role="user", content="ping")])
+                return True
+            except Exception:
+                return False
+
+    def unload_model(self) -> bool:
+        try:
+            r = self.client.post(
+                "/api/generate",
+                json={"model": self.model_name, "prompt": "", "keep_alive": 0, "stream": False},
+                timeout=30.0,
+            )
+            r.raise_for_status()
+            return True
+        except Exception:
+            return False
 
     def close(self) -> None:
         try:

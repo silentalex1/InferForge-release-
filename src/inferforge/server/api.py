@@ -267,59 +267,45 @@ async def create_embeddings(body: EmbeddingRequest, api_key: str = Depends(verif
 
 
 async def stream_chat_response(model_name: str, messages: list[ChatMessage], options: dict[str, Any] | None) -> AsyncIterator[str]:
-    """Stream chat responses in SSE format."""
     import json
-    
+
+    from starlette.concurrency import iterate_in_threadpool, run_in_threadpool
+
     reg = Registry()
     record = reg.get(model_name)
     if record is None:
-        yield f'data: {json.dumps({"error": "model not found"})}\n\n'
+        yield f'data: {json.dumps({"error": {"message": f"model not found: {model_name}"}})}\n\n'
+        yield "data: [DONE]\n\n"
         return
-    
-    router = get_router()
-    engine = router.resolve(record)
-    
-    try:
-        # For now, we'll simulate streaming by chunking the response
-        # In a real implementation, this would use engine.stream() if available
-        full_response = engine.chat(messages, options=options)
-        
-        chunk_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
-        
-        # Split response into words for streaming effect
-        words = full_response.split()
-        
-        for i, word in enumerate(words):
-            chunk = {
-                "id": chunk_id,
-                "object": "chat.completion.chunk",
-                "created": int(time.time()),
-                "model": record.name,
-                "choices": [{
-                    "index": 0,
-                    "delta": {"content": word + " " if i < len(words) - 1 else word},
-                    "finish_reason": None
-                }]
-            }
-            yield f"data: {json.dumps(chunk)}\n\n"
-        
-        # Send final chunk
-        final_chunk = {
+
+    chunk_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
+
+    def frame(delta: dict[str, Any], finish: str | None = None) -> str:
+        payload = {
             "id": chunk_id,
             "object": "chat.completion.chunk",
             "created": int(time.time()),
             "model": record.name,
-            "choices": [{
-                "index": 0,
-                "delta": {},
-                "finish_reason": "stop"
-            }]
+            "choices": [{"index": 0, "delta": delta, "finish_reason": finish}],
         }
-        yield f"data: {json.dumps(final_chunk)}\n\n"
-        yield "data: [DONE]\n\n"
-        
-    finally:
-        engine.close()
+        return f"data: {json.dumps(payload)}\n\n"
+
+    try:
+        engine = get_router().resolve(record)
+        streamer = getattr(engine, "stream_chat", None)
+        if callable(streamer):
+            async for token in iterate_in_threadpool(streamer(messages, options=options)):
+                if token:
+                    yield frame({"content": token})
+        else:
+            full = await run_in_threadpool(engine.chat, messages, options=options)
+            if full:
+                yield frame({"content": full})
+        yield frame({}, "stop")
+    except Exception as exc:
+        yield f'data: {json.dumps({"error": {"message": str(exc), "type": "upstream_error"}})}\n\n'
+
+    yield "data: [DONE]\n\n"
 
 
 @app.post("/v1/chat/completions", response_model=None)
@@ -354,8 +340,8 @@ async def chat_completions(body: ChatCompletionRequest, request: Request):
         if body.max_tokens is not None:
             options["max_tokens"] = body.max_tokens
         content = engine.chat(messages, options=options or None)
-    finally:
-        engine.close()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"model backend error: {exc}") from exc
 
     created = int(time.time())
     return {
@@ -392,8 +378,8 @@ def ollama_chat(body: OllamaChatRequest, request: Request) -> dict[str, Any]:
     try:
         messages = [ChatMessage(role=m.role, content=m.content) for m in body.messages]
         content = engine.chat(messages, system=body.system, options=body.options)
-    finally:
-        engine.close()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"model backend error: {exc}") from exc
 
     return {
         "model": record.name,

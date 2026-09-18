@@ -10,6 +10,8 @@ import {
   timingSafeEqual,
 } from "../../../lib/sdk/store"
 
+const UPSTREAM_FAILED = 424
+
 function isPrivateHost(endpoint: string): boolean {
   let host = ""
   try {
@@ -73,7 +75,7 @@ export async function onRequest(context: any): Promise<Response> {
   const upstream = cleanEndpoint(record.endpoint)
   if (!isHttpUrl(upstream)) {
     track(502)
-    return json({ error: "no-upstream", message: "This model has no reachable server registered." }, 502)
+    return json({ error: "no-upstream", message: "This model has no reachable server registered." }, UPSTREAM_FAILED)
   }
   if (isPrivateHost(upstream)) {
     track(502)
@@ -84,7 +86,7 @@ export async function onRequest(context: any): Promise<Response> {
           "'" + model + "' is registered on a private address (" + upstream + ") that this site cannot reach. " +
           "Expose `forge serve` on a public HTTPS URL and re-run: forge embedd " + model + " --sdk --endpoint <public-url>",
       },
-      502
+      UPSTREAM_FAILED
     )
   }
 
@@ -106,11 +108,23 @@ export async function onRequest(context: any): Promise<Response> {
         error: "upstream-unreachable",
         message: "Could not reach " + upstream + ": " + (err?.message || "connection failed"),
       },
-      502
+      UPSTREAM_FAILED
     )
   }
 
   track(upstreamResponse.status)
+
+  if (upstreamResponse.status >= 500) {
+    const detail = await upstreamResponse.text().catch(() => "")
+    return json(
+      {
+        error: "upstream-error",
+        status: upstreamResponse.status,
+        message: detail.slice(0, 500) || "The model server returned " + upstreamResponse.status + ".",
+      },
+      UPSTREAM_FAILED
+    )
+  }
 
   const headers = corsHeaders({
     "Content-Type": upstreamResponse.headers.get("content-type") || "application/json; charset=utf-8",
