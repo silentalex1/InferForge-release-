@@ -146,12 +146,12 @@ def use_template(name: str, var: tuple[str, ...], model: str):
     
     try:
         result = template.format(**variables)
-        console.print(f"\n[bold]Generated Prompt:[/]\n")
+        console.print("\n[bold]Generated Prompt:[/]\n")
         console.print(result)
         
         if click.confirm(f"\nRun this prompt with {model}?"):
-            from inferforge.engine import get_router
             from inferforge.core.registry import Registry
+            from inferforge.engine import get_router
             
             reg = Registry()
             record = reg.get(model)
@@ -162,7 +162,7 @@ def use_template(name: str, var: tuple[str, ...], model: str):
                 
                 try:
                     response = engine.chat([{"role": "user", "content": result}])
-                    console.print(f"\n[bold]Response:[/]\n")
+                    console.print("\n[bold]Response:[/]\n")
                     console.print(response)
                 except Exception as e:
                     console.print(f"[red]Error running model:[/] {e}")

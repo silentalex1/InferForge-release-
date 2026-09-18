@@ -67,7 +67,7 @@ def evolve_command(model: str, goal: str, iterations: int) -> None:
     
     result = engine.evolve_model(model, goal, iterations)
     
-    console.print(f"[green]✓[/] Evolution complete")
+    console.print("[green]✓[/] Evolution complete")
     console.print(f"Total improvement: {result['total_improvement']:.1%}")
     
     table = Table(title="Evolution History")
@@ -93,7 +93,7 @@ def compress_command(model_path: Path, ratio: float) -> None:
     
     result = engine.compress_model(model_path, ratio)
     
-    console.print(f"[green]✓[/] Compression complete")
+    console.print("[green]✓[/] Compression complete")
     console.print(f"Original size: {result['original_size']:,} bytes")
     console.print(f"Target size: {result['target_size']:,} bytes")
     console.print(f"Method: {result['method']}")
@@ -110,7 +110,7 @@ def swarm_command(config_file: Path) -> None:
     with config_file.open() as f:
         config = json.load(f)
     
-    console.print(f"[bold dark_orange]◈ Nexara[/] setting up swarm\n")
+    console.print("[bold dark_orange]◈ Nexara[/] setting up swarm\n")
     
     result = engine.setup_swarm(config)
     

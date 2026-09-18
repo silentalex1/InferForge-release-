@@ -140,7 +140,7 @@ def model_diff(model_name: str, version1: str, version2: str):
     v2_path = versions_dir / version2
     
     if not v1_path.exists() or not v2_path.exists():
-        console.print(f"[red]One or both versions not found[/]")
+        console.print("[red]One or both versions not found[/]")
         return
     
     v1_meta = v1_path / "metadata.json"
@@ -163,7 +163,7 @@ def model_diff(model_name: str, version1: str, version2: str):
         console.print(f"  Notes: {v2_data.get('notes', 'none')}")
         console.print(f"  Parameters: {v2_data.get('parameters', {})}")
         
-        console.print(f"\n[bold]Parameter Changes:[/]")
+        console.print("\n[bold]Parameter Changes:[/]")
         v1_params = v1_data.get('parameters', {})
         v2_params = v2_data.get('parameters', {})
         

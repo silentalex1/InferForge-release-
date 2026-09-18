@@ -131,3 +131,31 @@ def import_from_ollama(
         imported.append(name)
 
     return len(imported), imported
+
+
+def stream_ollama_pull(
+    model_name: str,
+    host: str | None = None,
+    progress_callback: Callable[[dict], None] | None = None,
+) -> bool:
+    """Stream model pull from Ollama daemon via REST API."""
+    settings = load_settings()
+    base = (host or settings.get("ollama_host") or "http://127.0.0.1:11434").rstrip("/")
+    url = f"{base}/api/pull"
+    try:
+        with httpx.Client(timeout=None) as client:
+            with client.stream("POST", url, json={"name": model_name}) as response:
+                if response.status_code != 200:
+                    return False
+                for line in response.iter_lines():
+                    if not line:
+                        continue
+                    try:
+                        data = json.loads(line)
+                        if progress_callback:
+                            progress_callback(data)
+                    except Exception:
+                        pass
+        return True
+    except Exception:
+        return False

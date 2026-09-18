@@ -40,16 +40,20 @@ class ModelRecord:
 
 
 class Registry:
-    def __init__(self, path: Path | None = None) -> None:
+    def __init__(self, path: Path | None = None, seed_defaults: bool | None = None) -> None:
         self.path = path or registry_path()
+        # Only seed the premade catalogue when creating the user's default registry
+        # for the first time; explicit paths (tests, tooling) start empty.
+        self._seed = seed_defaults if seed_defaults is not None else path is None
         self._models: dict[str, ModelRecord] = {}
         self.load()
 
     def load(self) -> None:
         if not self.path.exists():
             self._models = {}
-            self._seed_defaults()
-            self.save()
+            if self._seed:
+                self._seed_defaults()
+                self.save()
             return
         with self.path.open("r", encoding="utf-8") as f:
             raw = json.load(f)
@@ -57,9 +61,6 @@ class Registry:
         self._models = {}
         for name, data in models.items():
             self._models[name] = ModelRecord(**data)
-        if not self._models:
-            self._seed_defaults()
-            self.save()
 
     def _seed_defaults(self) -> None:
         defaults = [

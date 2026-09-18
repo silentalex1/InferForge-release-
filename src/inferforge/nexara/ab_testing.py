@@ -158,7 +158,7 @@ class ABTestingEngine:
         elif confidence > 0.6:
             return f"Moderate confidence. Consider deploying {winner} with monitoring."
         else:
-            return f"Low confidence. Continue testing or analyze specific metrics."
+            return "Low confidence. Continue testing or analyze specific metrics."
     
     def get_test_status(self, test_id: str) -> dict[str, Any]:
         if test_id in self.active_tests:

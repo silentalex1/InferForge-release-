@@ -5,8 +5,8 @@ from pathlib import Path
 
 import click
 from rich.console import Console
-from rich.table import Table
 from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.table import Table
 
 from inferforge.core.registry import Registry
 from inferforge.engine import ChatMessage, get_router
@@ -30,7 +30,7 @@ def compare_command(models: tuple[str, ...], prompt: str, iterations: int, metri
     if not metrics:
         metrics = ("speed", "quality", "tokens")
     
-    console.print(f"\n[bold cyan]Model Comparison[/]\n")
+    console.print("\n[bold cyan]Model Comparison[/]\n")
     console.print(f"Prompt: [dim]{prompt}[/]")
     console.print(f"Iterations: {iterations}")
     console.print(f"Metrics: {', '.join(metrics)}\n")

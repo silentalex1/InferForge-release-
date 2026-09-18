@@ -150,7 +150,7 @@ def suite_command(model: str, save: str | None):
     summary = benchmark.get_summary()
     if model in summary:
         stats = summary[model]
-        console.print(f"\n[bold]Summary:[/]")
+        console.print("\n[bold]Summary:[/]")
         console.print(f"  Successful runs: {stats['successful_runs']}/{stats['total_runs']}")
         console.print(f"  Avg tokens/second: {stats['avg_tokens_per_second']:.2f}")
         console.print(f"  Avg duration: {stats['avg_duration']:.2f}s")

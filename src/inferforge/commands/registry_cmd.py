@@ -30,7 +30,7 @@ def push_command(model: str, tag: tuple[str, ...]):
         
         result = sync_manager.push_model(model, tags=tags)
         
-        console.print(f"[green]✓[/] Model pushed successfully")
+        console.print("[green]✓[/] Model pushed successfully")
         console.print(f"  Remote ID: {result.get('id')}")
         console.print(f"  Tags: {', '.join(tags)}")
         console.print(f"  URL: {result.get('url')}")
@@ -52,7 +52,7 @@ def pull_command(model: str, tag: str, force: bool):
         sync_manager = RegistrySyncManager()
         result = sync_manager.pull_model(model, tag=tag, force=force)
         
-        console.print(f"[green]✓[/] Model pulled successfully")
+        console.print("[green]✓[/] Model pulled successfully")
         console.print(f"  Name: {result.name}")
         console.print(f"  Size: {result.display_size()}")
         console.print(f"  Format: {result.format}")
@@ -116,13 +116,13 @@ def sync_command(direction: str, force: bool):
             console.print(f"[yellow]Sync skipped:[/] {result['reason']}")
             return
         
-        console.print(f"[green]✓ Sync complete[/]")
+        console.print("[green]✓ Sync complete[/]")
         console.print(f"  Pushed: {result['pushed']}")
         console.print(f"  Pulled: {result['pulled']}")
         console.print(f"  Conflicts: {result['conflicts']}")
         
         if result["errors"]:
-            console.print(f"\n[yellow]Errors:[/]")
+            console.print("\n[yellow]Errors:[/]")
             for error in result["errors"]:
                 console.print(f"  - {error}")
     

@@ -79,7 +79,7 @@ def create_key(name: str):
     manager = get_api_key_manager()
     key = manager.create_key(name)
     
-    console.print(f"\n[bold green]✓ API Key Created[/]\n")
+    console.print("\n[bold green]✓ API Key Created[/]\n")
     console.print(f"[yellow]Key:[/] [bold]{key}[/]\n")
     console.print("[dim]Save this key securely! You won't be able to see it again.[/]")
     console.print(f"[dim]Keys are stored in: {manager.keys_file}[/]\n")
@@ -114,7 +114,7 @@ def list_keys(provider: str | None):
         console.print(f"\n[dim]Total InferForge keys: {len(inferforge_keys)}[/]")
     
     if external_keys:
-        console.print(f"\n[bold cyan]External API Keys[/]\n")
+        console.print("\n[bold cyan]External API Keys[/]\n")
         
         for provider, keys in external_keys.items():
             if keys:
@@ -172,9 +172,9 @@ def revoke_key(key: str):
     
     if click.confirm(f"Revoke key {key[:20]}...? This cannot be undone."):
         if manager.revoke_key(key):
-            console.print(f"[green]✓[/] Key revoked successfully")
+            console.print("[green]✓[/] Key revoked successfully")
         else:
-            console.print(f"[red]✗[/] Key not found")
+            console.print("[red]✗[/] Key not found")
 
 
 @apikey_command.command("validate")
@@ -184,6 +184,6 @@ def validate_key(key: str):
     manager = get_api_key_manager()
     
     if manager.validate_key(key):
-        console.print(f"[green]✓[/] Key is valid")
+        console.print("[green]✓[/] Key is valid")
     else:
-        console.print(f"[red]✗[/] Key is invalid or revoked")
+        console.print("[red]✗[/] Key is invalid or revoked")

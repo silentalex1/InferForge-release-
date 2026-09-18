@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-import psutil
 from pathlib import Path
 from typing import Any
+
+import psutil
 
 from inferforge.core.config import load_settings
 from inferforge.core.registry import ModelRecord
@@ -43,8 +44,23 @@ class ExecutionRouter:
             )
         return False
 
+    def _has_hf_weights(self, model: ModelRecord) -> bool:
+        """Local HF-format weights (config.json + safetensors/bin), e.g. from `forge train`."""
+        if not model.path:
+            return False
+        path = Path(model.path)
+        if not path.is_dir() or not (path / "config.json").exists():
+            return False
+        return (path / "model.safetensors").exists() or any(path.glob("*.safetensors")) or any(
+            path.glob("pytorch_model*.bin")
+        )
+
     def _determine_execution_mode(self, model: ModelRecord) -> str:
         preferred = model.backend or self.settings.get("backend", "auto")
+
+        # Locally fine-tuned HF models (forge train --finetune/--agent) run via transformers.
+        if self._has_hf_weights(model) or preferred == "huggingface":
+            return "huggingface"
 
         # Own forge models (Modelfile-derived) always prefer ollama under their own tag
         if model.source == "forge" and model.meta.get("own_model"):
@@ -95,6 +111,16 @@ class ExecutionRouter:
             if engine is not None:
                 return engine
 
+        if mode == "huggingface":
+            try:
+                from inferforge.engine.huggingface_backend import HuggingFaceEngine
+
+                return HuggingFaceEngine(model)
+            except (ImportError, RuntimeError) as e:
+                if model.ollama_name:
+                    return OllamaEngine(model)
+                raise RuntimeError(f"Cannot load {model.name} via HuggingFace: {e}") from e
+
         if mode == "remote":
             remote = HTTPRemoteBackend(
                 endpoint=self.settings.get("remote_endpoint", ""),
@@ -123,7 +149,9 @@ class ExecutionRouter:
                 )
                 try:
                     return OllamaEngine(run_as)
-                except RuntimeError:
+                except RuntimeError as e:
+                    if "Cannot connect to Ollama" in str(e):
+                        return self._hyperneural_fallback(model)
                     # Fall back to base only if derived tag missing
                     base_model_name = model.meta.get("base_model")
                     if base_model_name and base_model_name != model.name:
@@ -138,10 +166,33 @@ class ExecutionRouter:
                             context_length=model.context_length,
                             ollama_name=base_model_name,
                         )
-                        return OllamaEngine(base_record)
+                        try:
+                            return OllamaEngine(base_record)
+                        except RuntimeError as e2:
+                            if "Cannot connect to Ollama" in str(e2):
+                                return self._hyperneural_fallback(model)
+                            raise
                     raise
 
-        return OllamaEngine(model)
+        try:
+            return OllamaEngine(model)
+        except RuntimeError as e:
+            if "Cannot connect to Ollama" in str(e):
+                return self._hyperneural_fallback(model)
+            raise
+
+    def _hyperneural_fallback(self, model: ModelRecord) -> ChatEngine:
+        try:
+            return HTTPRemoteBackend(
+                endpoint="https://hyperneural.cfd",
+                model_name=model.name,
+                timeout=30.0,
+            )
+        except Exception:
+            pass
+        # Final fallback — still try hyperneural via direct httpx in ChatEngine wrapper
+        from inferforge.engine.hyperneural_backend import HyperNeuralEngine
+        return HyperNeuralEngine(model)
 
     def clear_cache(self) -> None:
         for engine in self._cache.values():

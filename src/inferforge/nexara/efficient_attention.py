@@ -2,15 +2,38 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Optional
 
 try:
+    import math
+
     import torch
     import torch.nn as nn
     import torch.nn.functional as F
-    import math
     TORCH_AVAILABLE = True
 except ImportError:
+    import math
+    torch = None  # type: ignore
+    class _DummyModule:
+        def __init__(self, *a, **kw): pass
+    class _DummyNN:
+        Module = _DummyModule
+        Linear = _DummyModule
+        LayerNorm = _DummyModule
+        Sequential = _DummyModule
+        Parameter = _DummyModule
+        Dropout = _DummyModule
+        ReLU = _DummyModule
+        GELU = _DummyModule
+    nn = _DummyNN()  # type: ignore
+    class _DummyF:
+        @staticmethod
+        def softmax(*a, **kw): return None
+        @staticmethod
+        def dropout(*a, **kw): return None
+        @staticmethod
+        def relu(*a, **kw): return None
+    F = _DummyF()  # type: ignore
     TORCH_AVAILABLE = False
 
 

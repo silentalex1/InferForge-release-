@@ -57,7 +57,6 @@ class S3StorageBackend(StorageBackend):
         return f"s3://{self.bucket_name}/{remote_key}"
 
     def _upload_large_file(self, local_path: Path, remote_key: str, chunk_size: int) -> None:
-        import os
 
         part_number = 1
         parts = []

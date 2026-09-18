@@ -92,7 +92,7 @@ def show_profile(name: str | None):
         return
     
     console.print(f"\n[bold cyan]Profile:[/] {name}")
-    console.print(f"[bold]Configuration:[/]")
+    console.print("[bold]Configuration:[/]")
     for key, value in config.items():
         console.print(f"  {key}: {value}")
 

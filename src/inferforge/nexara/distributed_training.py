@@ -4,18 +4,16 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Optional
 
 try:
     import torch
     import torch.distributed as dist
     import torch.multiprocessing as mp
     import torch.nn as nn
-    from torch.nn.parallel import DistributedDataParallel as DDP
     from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
     from torch.distributed.fsdp import ShardingStrategy
     from torch.distributed.fsdp.wrap import always_wrap_policy
+    from torch.nn.parallel import DistributedDataParallel as DDP
     TORCH_AVAILABLE = True
 except ImportError:
     TORCH_AVAILABLE = False

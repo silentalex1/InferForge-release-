@@ -2,11 +2,9 @@ from __future__ import annotations
 
 import platform
 import subprocess
-from pathlib import Path
 
 import click
 from rich.console import Console
-from rich.table import Table
 
 console = Console()
 
@@ -162,14 +160,14 @@ def optimize_apple_silicon(model: str):
     
     result = optimizer.optimize_for_apple_silicon(model)
     
-    console.print(f"\n[bold cyan]Apple Silicon Optimization[/]")
+    console.print("\n[bold cyan]Apple Silicon Optimization[/]")
     console.print(f"[bold]Model:[/] {model}")
-    console.print(f"[bold]Optimizations:[/]")
+    console.print("[bold]Optimizations:[/]")
     
     for key, value in result["optimizations"].items():
         console.print(f"  {key}: {value}")
     
-    console.print(f"\n[bold]Recommended Command:[/]")
+    console.print("\n[bold]Recommended Command:[/]")
     console.print(f"  {result['command']}")
 
 
@@ -185,11 +183,11 @@ def optimize_windows_gpu(model: str):
     
     result = optimizer.optimize_for_windows(model)
     
-    console.print(f"\n[bold cyan]Windows GPU Optimization[/]")
+    console.print("\n[bold cyan]Windows GPU Optimization[/]")
     console.print(f"[bold]Model:[/] {model}")
     console.print(f"[bold]CUDA Available:[/] {'Yes' if result['cuda_available'] else 'No'}")
     console.print(f"[bold]DirectML Available:[/] {'Yes' if result['directml_available'] else 'No'}")
-    console.print(f"\n[bold]Optimizations:[/]")
+    console.print("\n[bold]Optimizations:[/]")
     
     for key, value in result["optimizations"].items():
         console.print(f"  {key}: {value}")
@@ -201,7 +199,7 @@ def platform_doctor(fix: bool):
     """Diagnose and fix platform-specific issues."""
     system = platform.system()
     
-    console.print(f"\n[bold cyan]Platform Doctor[/]")
+    console.print("\n[bold cyan]Platform Doctor[/]")
     console.print(f"[bold]System:[/] {system}")
     
     if system == "Darwin":

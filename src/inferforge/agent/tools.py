@@ -14,6 +14,7 @@ from inferforge.agent.security import (
     AuditEntry,
     OperationType,
     RiskLevel,
+    SecurityConfig,
     SecurityManager,
     get_security_manager,
 )
@@ -26,11 +27,6 @@ JSON_FENCE_RE = re.compile(
     r"```(?:json|tool|tool_call)?\s*(\{.*?\})\s*```",
     re.DOTALL | re.IGNORECASE,
 )
-BARE_TOOL_JSON_RE = re.compile(
-    r"\{[^{}]*\"name\"\s*:\s*\"(?:create_file|edit_file|delete_file|read_file|open_file|list_dir|run_command|web_request|check_storage)\"[^{}]*\}",
-    re.DOTALL | re.IGNORECASE,
-)
-
 TOOL_NAMES = {
     "create_file",
     "edit_file",
@@ -77,6 +73,14 @@ NAME_ALIASES = {
     "disk": "check_storage",
     "df": "check_storage",
 }
+
+_ALL_TOOL_NAMES = "|".join(
+    re.escape(n) for n in sorted(TOOL_NAMES | set(NAME_ALIASES), key=len, reverse=True)
+)
+BARE_TOOL_JSON_RE = re.compile(
+    r"\{[^{}]*\"(?:name|tool|action)\"\s*:\s*\"(?:" + _ALL_TOOL_NAMES + r")\"[^{}]*\}",
+    re.DOTALL | re.IGNORECASE,
+)
 
 FORBIDDEN_PREFIXES = (
     Path(os.environ.get("SystemRoot", r"C:\Windows")).resolve(),
@@ -717,7 +721,11 @@ def execute_tool_call(call: dict[str, Any], workspace: Path | None = None, secur
 
 def execute_tool_calls(text: str, workspace: Path | None = None, security: SecurityManager | None = None) -> list[ToolResult]:
     if security is None:
-        security = get_security_manager()
+        if workspace is not None:
+            # An explicitly requested workspace is the sandbox root for this batch.
+            security = SecurityManager(SecurityConfig(allowed_workspaces=[Path(workspace).resolve()]))
+        else:
+            security = get_security_manager()
     return [execute_tool_call(c, workspace, security) for c in parse_tool_calls(text)]
 
 

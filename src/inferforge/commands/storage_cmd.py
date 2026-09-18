@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-import click
 from pathlib import Path
+
+import click
 from rich.console import Console
-from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
+from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
 from inferforge.core.config import (
-    cache_dir,
+    get_remote_config,
     get_storage_config,
     load_settings,
     save_settings,

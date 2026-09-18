@@ -110,7 +110,7 @@ def stats_performance(model: str | None):
         console.print("[yellow]No performance data available[/]")
         return
     
-    console.print(f"\n[bold cyan]Performance Metrics[/]\n")
+    console.print("\n[bold cyan]Performance Metrics[/]\n")
     
     if model:
         console.print(f"[bold]Model:[/] {model}\n")

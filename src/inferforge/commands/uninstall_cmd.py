@@ -1,8 +1,10 @@
 from __future__ import annotations
+
 import shutil
-import sys
 import subprocess
+import sys
 from pathlib import Path
+
 import click
 from rich.console import Console
 

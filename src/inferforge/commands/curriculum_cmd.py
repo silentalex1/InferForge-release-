@@ -84,7 +84,7 @@ def curriculum_create(name: str, description: str):
         console.print(f"[green]✓[/] Created curriculum: {name}")
         console.print("[dim]Add stages with: forge curriculum add-stage[/]")
     else:
-        console.print(f"[red]Failed to create curriculum[/]")
+        console.print("[red]Failed to create curriculum[/]")
 
 
 @curriculum_group.command("add-stage")
@@ -100,7 +100,7 @@ def curriculum_add_stage(curriculum: str, stage_name: str, data: str, epochs: in
     if manager.add_stage(curriculum, stage_name, data, epochs, learning_rate):
         console.print(f"[green]✓[/] Added stage '{stage_name}' to {curriculum}")
     else:
-        console.print(f"[red]Failed to add stage[/]")
+        console.print("[red]Failed to add stage[/]")
 
 
 @curriculum_group.command("list")

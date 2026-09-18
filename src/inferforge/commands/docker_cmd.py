@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import click
 from rich.console import Console
-from rich.table import Table
 
 console = Console()
 
@@ -236,7 +234,7 @@ def docker_status():
     """Check Docker and container status."""
     manager = DockerManager()
     
-    console.print(f"\n[bold cyan]Docker Status[/]")
+    console.print("\n[bold cyan]Docker Status[/]")
     console.print(f"[bold]Docker Available:[/] {'Yes' if manager.docker_available else 'No'}")
     
     if manager.docker_available:
@@ -249,7 +247,7 @@ def docker_status():
             )
             
             if result.stdout.strip():
-                console.print(f"\n[bold]Running InferForge Containers:[/]\n")
+                console.print("\n[bold]Running InferForge Containers:[/]\n")
                 console.print(result.stdout)
             else:
                 console.print("\n[yellow]No InferForge containers running[/]")

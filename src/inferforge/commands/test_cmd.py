@@ -5,9 +5,11 @@ import time
 from pathlib import Path
 
 import click
+from platformdirs import user_data_dir
 from rich.console import Console
 from rich.table import Table
-from platformdirs import user_data_dir
+
+from inferforge.core.registry import Registry
 
 console = Console()
 
@@ -48,8 +50,13 @@ def test_command():
 @click.option("--benchmark", "-b", type=click.Choice(["coding"]), default="coding", help="Built-in benchmark suite")
 @click.option("--custom", default=None, type=click.Path(exists=True), help="Path to a custom tests JSON file")
 @click.option("--save", "-s", "save_label", default=None, help="Label to save results under for later comparison")
-def run_tests(model: str, benchmark: str, custom: str | None, save_label: str | None):
+@click.option("--agent", "agent_eval", is_flag=True, help="Score tool-calling ability (parseable/correct calls on held-out agent tasks) instead of the keyword benchmark.")
+def run_tests(model: str, benchmark: str, custom: str | None, save_label: str | None, agent_eval: bool):
     """Run quality tests against a model."""
+    if agent_eval:
+        _run_agent_eval(model, save_label)
+        return
+
     if custom:
         try:
             cases = json.loads(Path(custom).read_text(encoding="utf-8"))
@@ -119,6 +126,53 @@ def run_tests(model: str, benchmark: str, custom: str | None, save_label: str | 
         }
         out = _results_dir() / f"{model.replace('/', '_').replace(':', '_')}_{save_label}.json"
         out.write_text(json.dumps(record, indent=2), encoding="utf-8")
+        console.print(f"[green]Saved as '{save_label}' ->[/] {out}")
+
+
+def _run_agent_eval(model: str, save_label: str | None) -> None:
+    """Score a model's tool-calling ability with the real agent parser."""
+    reg = Registry()
+    record = reg.get(model)
+    if not record:
+        console.print(f"[red]Model '{model}' not found. Run 'forge list' first.[/]")
+        return
+    model_id = record.meta.get("hf_model_id") or record.path or record.name
+
+    try:
+        from inferforge.training.agent_eval import eval_agent_model
+    except ImportError as exc:
+        console.print(f"[red]Agent eval requires torch + transformers:[/] {exc}")
+        return
+
+    console.print(f"[bold cyan]Agent eval: {model}[/] ({model_id})")
+    try:
+        report = eval_agent_model(model_id)
+    except Exception as exc:
+        console.print(f"[red]Could not load model:[/] {exc}")
+        return
+
+    summary = report["summary"]
+    table = Table(title=f"Agent tool-calling: {model}")
+    table.add_column("Metric", style="cyan")
+    table.add_column("Value", style="yellow")
+    table.add_row("emitted a call (tool cases)", f"{summary['tool_call_rate']:.0%}")
+    table.add_row("correct tool", f"{summary['correct_tool_rate']:.0%}")
+    table.add_row("correct args", f"{summary['arg_accuracy']:.0%}")
+    table.add_row("no-tool discipline", f"{summary['no_tool_discipline']:.0%}")
+    table.add_row("overall score", f"{summary['score']:.0%}", style="bold green")
+    console.print(table)
+
+    fails = [r for r in report["cases"] if not (r["correct_tool"] and r["args_ok"])]
+    if fails:
+        console.print(f"\n[dim]{len(fails)} failing cases (first 5):[/]")
+        for r in fails[:5]:
+            console.print(f"  [red]✗[/] {r['task']}  ->  {r['output'][:70]!r}")
+
+    if save_label:
+        out = _results_dir() / f"{model.replace('/', '_').replace(':', '_')}_{save_label}_agent.json"
+        out.write_text(json.dumps({"model": model, "label": save_label, "timestamp": time.time(),
+                                   "score": summary["score"] * 100, "summary": summary,
+                                   "details": report["cases"]}, indent=2), encoding="utf-8")
         console.print(f"[green]Saved as '{save_label}' ->[/] {out}")
 
 

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import time
 from pathlib import Path
 from typing import List, Optional
@@ -21,15 +20,33 @@ console = Console()
     "--strategy",
     "--method",
     "strategy",
-    type=click.Choice(["slerp", "ties", "moe", "linear", "simple_average"]),
+    type=click.Choice([
+        "slerp",
+        "ties",
+        "dare_ties",
+        "dare_linear",
+        "task_arithmetic",
+        "passthrough",
+        "moe",
+        "linear",
+        "simple_average",
+    ]),
     default="ties",
-    help="Merging strategy to use",
+    help="Merging strategy to use (ties, dare_ties, dare_linear, task_arithmetic, passthrough, slerp, etc.)",
 )
 @click.option("--model1", type=str, default=None, help="First model (alternative to positional args).")
 @click.option("--model2", type=str, default=None, help="Second model (alternative to positional args).")
 @click.option("--output", "output_name", type=str, default=None, help="Output model name (alias for --name).")
 @click.option("--interpolation", type=float, default=0.5, help="Interpolation value for SLERP/linear (0.0-1.0)")
+@click.option("--weights", "weights_str", type=str, default=None, help="Comma-separated weights (e.g. 0.6,0.4).")
+@click.option("--base-model", "base_model", type=str, default=None, help="Base model for delta methods (TIES, DARE, Task Arithmetic).")
 @click.option("--ties-k", type=float, default=0.2, help="TIES parameter k: keep top k of significant weights")
+@click.option("--dare-drop-rate", type=float, default=0.2, help="DARE parameter: drop rate probability (0.0 - 0.99).")
+@click.option("--dare-rescale/--no-dare-rescale", default=True, help="DARE parameter: rescale surviving weights by 1/(1-p).")
+@click.option("--slices", type=str, default=None, help="Layer slice mapping for passthrough/frankenmerge.")
+@click.option("--recipe", "--config", "recipe_file", type=click.Path(path_type=Path), default=None, help="YAML/JSON merge recipe file.")
+@click.option("--resume", is_flag=True, help="Resume an interrupted layer-wise merge from checkpoint.")
+@click.option("--quantize", "post_quantize", type=str, default=None, help="Auto-quantize output after merge (q4_k_m, q5_k_m, q8_0).")
 @click.option(
     "--precision",
     type=click.Choice(["float32", "float16", "bfloat16"]),
@@ -54,11 +71,11 @@ console = Console()
 @click.option("--verify", is_flag=True, help="Load merged tensors and confirm they are finite")
 # --- speed / performance flags ------------------------------------------------
 @click.option("--use-gpu", "use_gpu", is_flag=True, help="Use CUDA for weight operations when available.")
-@click.option("--lazy-load", "lazy_load", is_flag=True, help="Load weights progressively instead of all at once.")
+@click.option("--lazy-load/--no-lazy-load", "lazy_load", default=True, help="Stream weights layer-by-layer to minimize RAM.")
 @click.option("--parallel-layers", "parallel_layers", is_flag=True, help="Process independent layers in parallel where possible.")
 @click.option("--num-workers", "num_workers", default=0, type=int, help="Worker processes/threads for parallel stage work.")
-@click.option("--mmap", "use_mmap", is_flag=True, help="Memory-map weight files to reduce RAM usage.")
-@click.option("--cache-dir", "cache_dir", type=click.Path(path_type=Path), default=None, help="Directory for merge cache (aligned weights, digests).")
+@click.option("--mmap/--no-mmap", "use_mmap", default=True, help="Memory-map weight files to eliminate RAM copies.")
+@click.option("--cache-dir", "cache_dir", type=click.Path(path_type=Path), default=None, help="Directory for merge cache.")
 @click.option("--use-cache", "use_cache", is_flag=True, help="Reuse cached validation digests from --cache-dir.")
 @click.option("--clear-cache", "clear_cache", is_flag=True, help="Clear the merge cache and exit.")
 @click.option("--skip-embeddings", "skip_embeddings", is_flag=True, help="Skip embedding layers during merge.")
@@ -71,7 +88,15 @@ def merge_command(
     models: tuple,
     strategy: str,
     interpolation: float,
+    weights_str: Optional[str],
+    base_model: Optional[str],
     ties_k: float,
+    dare_drop_rate: float,
+    dare_rescale: bool,
+    slices: Optional[str],
+    recipe_file: Optional[Path],
+    resume: bool,
+    post_quantize: Optional[str],
     precision: str,
     output_dir: Optional[str],
     force: bool,
@@ -112,6 +137,18 @@ def merge_command(
         models = (model1, model2)
     if output_name and not name:
         name = output_name
+
+    # If 3 or more positional arguments given and no explicit output name,
+    # check if the last argument was intended as the destination name (e.g. inferforge-beta)
+    if len(models) >= 3 and not name:
+        cand_name = models[-1]
+        reg_check = Registry()
+        last_rec = reg_check.get(cand_name)
+        first_two_valid = all(reg_check.get(m) is not None for m in models[:-1])
+        if first_two_valid and (last_rec is None or not getattr(last_rec, "path", "") or cand_name == "inferforge-beta"):
+            name = cand_name
+            models = models[:-1]
+
     if len(models) < 2:
         console.print("[red]Error:[/] at least 2 models are required for merging")
         console.print("[dim]Usage: forge merge <model-a> <model-b> [--name fused][/]")
@@ -147,6 +184,37 @@ def merge_command(
                 console.print("[yellow]CUDA not available — merging on CPU.[/]")
         except ImportError:
             console.print("[yellow]torch not installed — merging on CPU.[/]")
+    # --- Parse recipe file if provided -------------------------------------
+    if recipe_file:
+        import json
+        p = Path(recipe_file)
+        if not p.exists():
+            console.print(f"[red]Recipe file not found:[/] {p}")
+            raise SystemExit(1)
+        try:
+            if p.suffix in {".yaml", ".yml"}:
+                import yaml
+                recipe_data = yaml.safe_load(p.read_text(encoding="utf-8"))
+            else:
+                recipe_data = json.loads(p.read_text(encoding="utf-8"))
+            if "merge_method" in recipe_data:
+                strategy = recipe_data["merge_method"].lower()
+            if "models" in recipe_data and not models:
+                raw_models = recipe_data["models"]
+                models = tuple(m["model"] if isinstance(m, dict) else str(m) for m in raw_models)
+            if "base_model" in recipe_data and not base_model:
+                base_model = recipe_data["base_model"]
+        except Exception as exc:
+            console.print(f"[yellow]Warning: Could not parse recipe file ({exc}), continuing with CLI arguments.[/]")
+
+    # Parse weights
+    weights_list = None
+    if weights_str:
+        try:
+            weights_list = [float(x.strip()) for x in weights_str.split(",")]
+        except ValueError:
+            console.print("[red]Error:[/] --weights must be comma-separated numbers (e.g. 0.6,0.4)")
+            raise SystemExit(1)
 
     dest_root = Path(output_dir) if output_dir else Path(data_dir()) / "merged_models"
 
@@ -171,6 +239,27 @@ def merge_command(
         if verbose:
             console.print(f"  [green]OK[/] {record.name}  backend={record.backend}  format={record.format or 'auto'}")
     console.print(f"[green]OK[/] {len(model_records)} models ready")
+
+    # --- Pre-merge Resource Validation ----------------------------------------
+    from inferforge.merger.core.loader import estimate_merge_memory
+    mem_info = estimate_merge_memory(model_records, strategy=strategy, layer_wise=lazy_load, output_dir=dest_root)
+    console.print("\n[bold]Step 1b: Resource & Memory Estimation[/]")
+    console.print(f"  Available RAM:  [cyan]{mem_info['available_ram_gb']} GB[/] (Total: {mem_info['total_ram_gb']} GB)")
+    console.print(f"  Streaming RAM:  [green]{mem_info['streaming_ram_gb']} GB[/] (Peak per layer)")
+    console.print(f"  Estimated Size: [cyan]{mem_info['estimated_output_gb']} GB[/]")
+    console.print(f"  Available Disk: [green]{mem_info['available_disk_gb']} GB[/] on {dest_root.drive or dest_root}")
+
+    if not mem_info["disk_ok"]:
+        if force:
+            console.print(f"[yellow]Warning: Disk space low ({mem_info['available_disk_gb']} GB free, need ~{mem_info['estimated_output_gb']} GB), proceeding due to --force.[/]")
+        else:
+            console.print(f"[bold red]Error: Insufficient disk space.[/] Need ~{mem_info['estimated_output_gb']} GB, but only {mem_info['available_disk_gb']} GB free.")
+            console.print("[dim]Pass --force to proceed anyway.[/]")
+            raise SystemExit(1)
+    if not mem_info["can_in_memory"]:
+        if not lazy_load:
+            console.print("[yellow]Notice:[/] System RAM is insufficient for in-memory merge. Auto-switching to streaming layer-wise mode.")
+            lazy_load = True
 
     # --- cached validation digests ---------------------------------------------
     if use_cache and not skip_validation:
@@ -202,38 +291,15 @@ def merge_command(
         console.print("\n[bold yellow]Dry run — merge plan (nothing written):[/]")
         console.print(f"  strategy:   {strategy}")
         console.print(f"  precision:  {precision}")
-        console.print(f"  interpolation: {interpolation}  ties_k: {ties_k}")
+        console.print(f"  weights:    {weights_list or interpolation}")
         console.print(f"  models:     {', '.join(m.name for m in model_records)}")
         console.print(f"  device:     {device}")
+        console.print(f"  lazy_load:  {lazy_load}")
         console.print(f"  output dir: {dest_root}")
         total_bytes = sum(Path(m.path).stat().st_size for m in model_records if m.path and Path(m.path).is_file())
         console.print(f"  weight bytes to process: {total_bytes / (1024**3):.2f} GB")
         console.print("[green]OK[/] plan is valid — rerun without --dry-run to merge.")
         raise SystemExit(0)
-
-    try:
-        from inferforge.core.premium import get_premium_manager
-        _premium = get_premium_manager().get_current_tier().value != "community"
-    except Exception:
-        _premium = False
-    if _premium:
-        if not use_gpu:
-            try:
-                import torch
-                if torch.cuda.is_available():
-                    device = f"cuda:{torch.cuda.current_device()}"
-            except Exception:
-                pass
-        lazy_load = True
-        use_mmap = True
-        skip_validation = True
-        console.print(f"[green]Premium[/] optimized merge enabled (5-10 min estimate, local compute)")
-    else:
-        console.print("[dim]Community tier: merge may take 15-25 min depending on disk speed[/]")
-    console.print(f"\n[bold]Step 1b: Merge options[/]")
-    console.print(f"  device={device}  lazy_load={lazy_load}  parallel_layers={parallel_layers}  mmap={use_mmap}")
-    if skip_embeddings or skip_normalization or layer_range:
-        console.print(f"  filters: skip_embeddings={skip_embeddings} skip_normalization={skip_normalization} layer_range={layer_range or 'all'}")
 
     try:
         from inferforge.merger.core.weight_blender import MergeConfig, MergeStrategy
@@ -247,14 +313,23 @@ def merge_command(
     merge_config = MergeConfig(
         strategy=MergeStrategy(strategy),
         interpolation=interpolation,
+        weights=weights_list,
         ties_param_k=ties_k,
+        dare_drop_rate=dare_drop_rate,
+        dare_rescale=dare_rescale,
         precision=precision,
         normalize=False,
     )
     console.print("\n[bold]Step 2: Merge configuration[/]")
     console.print(f"  strategy={strategy}  precision={precision}  interpolation={interpolation}")
-    if strategy == "ties":
+    if weights_list:
+        console.print(f"  weights={weights_list}")
+    if "dare" in strategy:
+        console.print(f"  dare_drop_rate={dare_drop_rate}  dare_rescale={dare_rescale}")
+    if "ties" in strategy:
         console.print(f"  ties_k={ties_k}")
+    if base_model:
+        console.print(f"  base_model={base_model}")
 
     dest_root.mkdir(parents=True, exist_ok=True)
     stamp = int(time.time())
@@ -279,6 +354,9 @@ def merge_command(
             parallel_layers=parallel_layers,
             num_workers=num_workers,
             use_mmap=use_mmap,
+            resume=resume,
+            slices=slices,
+            base_model=base_model,
             skip_embeddings=skip_embeddings,
             skip_normalization=skip_normalization,
             layer_range=layer_range,
@@ -344,7 +422,8 @@ def merge_command(
         console.print("[red]Invalid model name. Use letters, numbers, hyphens, underscores, dots, or colons.[/]")
         raise SystemExit(1)
     existing = registry.get(final_name)
-    if existing is not None and not force:
+    is_premade_or_beta = bool(existing and (existing.meta.get("premade") or not existing.path or final_name == "inferforge-beta"))
+    if existing is not None and not force and not is_premade_or_beta:
         console.print(f"[red]Model '{final_name}' already exists. Pass --force to overwrite.[/]")
         raise SystemExit(1)
 
@@ -356,6 +435,15 @@ def merge_command(
         raise SystemExit(1)
 
     console.print(f"[green]OK[/] '{final_name}' is registered")
+
+    if post_quantize:
+        console.print(f"\n[bold]Step 6: Auto-quantizing merged model to {post_quantize}[/]")
+        try:
+            from inferforge.commands.pull_cmd import _quantize_model
+            _quantize_model(merged_path, post_quantize)
+        except Exception as q_exc:
+            console.print(f"[yellow]Warning: Auto-quantization failed ({q_exc}). The full precision model is still usable.[/]")
+
     console.print("\n[bold cyan]Merge complete[/]")
     console.print("[dim]Run it with:[/]")
     console.print(f"[bold]  forge run {final_name}[/]")
@@ -381,10 +469,13 @@ def perform_model_merge(
     per_layer_coeffs: Optional[str] = None,
     auto_optimize: bool = False,
     device: str = "cpu",
-    lazy_load: bool = False,
+    lazy_load: bool = True,
     parallel_layers: bool = False,
     num_workers: int = 0,
-    use_mmap: bool = False,
+    use_mmap: bool = True,
+    resume: bool = False,
+    slices: Optional[str] = None,
+    base_model: Optional[str] = None,
     skip_embeddings: bool = False,
     skip_normalization: bool = False,
     layer_range: Optional[str] = None,
@@ -434,6 +525,14 @@ def perform_model_merge(
             per_layer_coeffs=per_layer_coeffs,
             auto_optimize=auto_optimize,
             progress=on_progress,
+            device=device,
+            lazy_load=lazy_load,
+            parallel_layers=parallel_layers,
+            num_workers=num_workers,
+            use_mmap=use_mmap,
+            resume=resume,
+            base_model=base_model,
+            skip_validation=skip_validation,
         )
         # optional pipeline extensions (ignored gracefully when unsupported)
         for attr, value in (
@@ -442,6 +541,8 @@ def perform_model_merge(
             ("parallel_layers", parallel_layers),
             ("num_workers", num_workers),
             ("use_mmap", use_mmap),
+            ("resume", resume),
+            ("base_model", base_model),
             ("skip_validation", skip_validation),
         ):
             try:

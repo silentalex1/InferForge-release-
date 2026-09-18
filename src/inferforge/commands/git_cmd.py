@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import subprocess
-from pathlib import Path
 
 import click
 from rich.console import Console
@@ -141,7 +140,7 @@ def git_commit(forge: bool):
         integration = GitIntegration()
         message = integration.generate_commit_message()
         
-        console.print(f"\n[bold cyan]AI Commit Message:[/]\n")
+        console.print("\n[bold cyan]AI Commit Message:[/]\n")
         console.print(message)
         
         if click.confirm("\nUse this commit message?"):

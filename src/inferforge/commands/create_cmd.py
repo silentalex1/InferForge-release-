@@ -65,7 +65,7 @@ def create_command(
         
         engine.generate_training_script(result['compiled'], output_dir)
         console.print(f"[green]✓[/] Training script generated: {output_dir / 'train_nexara.py'}")
-        console.print(f"\n[dim]Run training script to start training with Nexara optimizations.[/]")
+        console.print("\n[dim]Run training script to start training with Nexara optimizations.[/]")
         return
     
     config = get_training_config()

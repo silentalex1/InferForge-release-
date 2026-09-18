@@ -7,8 +7,8 @@ from typing import Any
 try:
     import torch
     import torch.nn as nn
-    import torch.optim as optim
     import torch.nn.functional as F
+    import torch.optim as optim
     from torchvision import transforms
     TORCH_AVAILABLE = True
 except ImportError:

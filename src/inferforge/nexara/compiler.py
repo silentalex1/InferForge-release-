@@ -276,35 +276,140 @@ def setup_model_and_tokenizer(base_model: str, optimization_config: dict):
     return model, tokenizer
 
 
+def _dataset_source(dataset_config: dict) -> str | None:
+    for key in ("path", "source", "file", "name", "dataset"):
+        value = dataset_config.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _record_to_text(record: dict) -> str:
+    """Flatten common record schemas (alpaca / chat / prompt-completion / text) to one string."""
+    if "text" in record and record["text"]:
+        return str(record["text"])
+    messages = record.get("messages") or record.get("conversations")
+    if isinstance(messages, list):
+        parts = []
+        for msg in messages:
+            role = str(msg.get("role") or msg.get("from") or "user")
+            content = msg.get("content") or msg.get("value") or ""
+            parts.append(f"<|im_start|>{role}\\n{content}<|im_end|>")
+        return "\\n".join(parts)
+    if "instruction" in record:
+        prompt = str(record.get("instruction", ""))
+        if record.get("input"):
+            prompt += "\\n" + str(record["input"])
+        return prompt + "\\n" + str(record.get("output", ""))
+    prompt = record.get("prompt") or record.get("input") or ""
+    answer = record.get("completion") or record.get("response") or record.get("output") or ""
+    return f"{prompt}\\n{answer}".strip()
+
+
+def load_raw_dataset(dataset_config: dict):
+    """Load the dataset referenced by the Nexara config (local file, directory, or HF hub id)."""
+    from datasets import Dataset, load_dataset
+
+    source = _dataset_source(dataset_config)
+    split = dataset_config.get("split", "train")
+    if source is None:
+        n = int(dataset_config.get("examples", 100) or 100)
+        print("WARNING: no dataset path configured; using synthetic placeholder text.")
+        return Dataset.from_dict({"text": ["Example training text " + str(i) for i in range(n)]})
+
+    path = Path(source)
+    if path.exists():
+        suffix = path.suffix.lower()
+        if path.is_dir():
+            files = [str(p) for p in path.rglob("*") if p.suffix.lower() in {".jsonl", ".json", ".txt", ".csv", ".parquet"}]
+            if not files:
+                raise FileNotFoundError(f"No data files found under {path}")
+            suffix = Path(files[0]).suffix.lower()
+            data_files = files
+        else:
+            data_files = str(path)
+        fmt = {".jsonl": "json", ".json": "json", ".txt": "text", ".csv": "csv", ".parquet": "parquet"}.get(suffix)
+        if fmt is None:
+            raise ValueError(f"Unsupported dataset file type: {suffix}")
+        return load_dataset(fmt, data_files=data_files, split="train")
+
+    print(f"Loading dataset from Hugging Face Hub: {source}")
+    return load_dataset(source, dataset_config.get("config"), split=split)
+
+
 def prepare_dataset(dataset_config: dict, tokenizer):
-    """Prepare training dataset."""
+    """Prepare and tokenize the training dataset."""
     print("Preparing dataset...")
-    
-    # For now, use a placeholder - integrate with actual dataset loading
-    # In production, this would load from dataset_config["path"] or build from examples
-    
-    dataset_type = dataset_config.get("type", "custom")
     max_length = dataset_config.get("max_length", 2048)
-    
-    # Tokenization function
+    text_field = dataset_config.get("text_field", "text")
+
+    dataset = load_raw_dataset(dataset_config)
+    max_examples = dataset_config.get("max_examples")
+    if max_examples:
+        dataset = dataset.select(range(min(int(max_examples), len(dataset))))
+
+    if text_field not in dataset.column_names:
+        dataset = dataset.map(lambda rec: {"text": _record_to_text(rec)}, remove_columns=dataset.column_names)
+        text_field = "text"
+
     def tokenize_function(examples):
         return tokenizer(
-            examples["text"],
-            truncation=True,
+            examples[text_field],
+            truncation=dataset_config.get("truncation", True),
             max_length=max_length,
-            padding="max_length",
+            padding=dataset_config.get("padding", "max_length"),
         )
-    
-    # Placeholder dataset creation
-    # Replace with actual dataset loading logic
-    from datasets import Dataset
-    train_data = {
-        "text": ["Example training text " + str(i) for i in range(100)]
-    }
-    dataset = Dataset.from_dict(train_data)
-    tokenized_dataset = dataset.map(tokenize_function, batched=True)
-    
+
+    tokenized_dataset = dataset.map(tokenize_function, batched=True, remove_columns=dataset.column_names)
+    print(f"Dataset ready: {len(tokenized_dataset)} examples")
     return tokenized_dataset
+
+
+def train_with_universal_trainer(config: dict, model_name: str) -> bool:
+    """Train via InferForge's UniversalTrainer when it is installed. Returns False to fall back."""
+    try:
+        from inferforge.nexara.universal_trainer import UniversalTrainConfig, UniversalTrainer
+    except ImportError:
+        return False
+
+    model_config = config["models"][model_name]
+    training_config = model_config["training"]
+    optimization_config = model_config["optimization"]
+    dataset_config = model_config["dataset"]
+    source = _dataset_source(dataset_config)
+    if source is None:
+        return False
+
+    print(f"\\n=== Training Model (UniversalTrainer): {model_name} ===")
+    cfg = UniversalTrainConfig(
+        output_dir=f"./output/{model_name}",
+        model=model_config.get("base_model"),
+        data=source,
+        text_field=dataset_config.get("text_field", "text"),
+        max_samples=dataset_config.get("max_examples"),
+        seq_len=dataset_config.get("max_length"),
+        epochs=int(training_config.get("epochs", 3)),
+        batch_size=training_config.get("batch_size"),
+        gradient_accumulation_steps=training_config.get("gradient_accumulation_steps"),
+        learning_rate=training_config.get("learning_rate"),
+        weight_decay=training_config.get("weight_decay", 0.01),
+        max_grad_norm=training_config.get("max_grad_norm", 1.0),
+        scheduler=training_config.get("lr_scheduler", "cosine"),
+        peft_method="lora" if optimization_config.get("use_lora") else "auto",
+        lora_r=optimization_config.get("lora_r", 16),
+        lora_alpha=optimization_config.get("lora_alpha", 32),
+        lora_dropout=optimization_config.get("lora_dropout", 0.05),
+        lora_target_modules=optimization_config.get("lora_target_modules"),
+        gradient_checkpointing=training_config.get("gradient_checkpointing"),
+        fp16=training_config.get("fp16"),
+        bf16=training_config.get("bf16"),
+        logging_steps=training_config.get("logging_steps", 10),
+        save_steps=training_config.get("save_steps", 500),
+        eval_steps=training_config.get("eval_steps", 500),
+    )
+    result = UniversalTrainer(cfg).train()
+    print(f"\\nTraining complete for {model_name}: {json.dumps(result, default=str)[:500]}")
+    return True
 
 
 def train_model(config: dict, model_name: str):
@@ -392,9 +497,12 @@ def main():
     print(f"Configuration version: {config.get('version', 'unknown')}")
     print(f"Models to train: {len(config['models'])}")
     
-    # Train each model
+    # Train each model (prefer InferForge's UniversalTrainer, fall back to HF Trainer)
+    use_universal = "--hf-trainer" not in sys.argv
     for model_name in config["models"]:
         try:
+            if use_universal and train_with_universal_trainer(config, model_name):
+                continue
             train_model(config, model_name)
         except Exception as e:
             print(f"\\nError training {model_name}: {e}")

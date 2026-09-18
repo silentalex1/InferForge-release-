@@ -6,24 +6,37 @@ import math
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 try:
     import torch
     import torch.nn as nn
     import torch.nn.functional as F
     import torch.optim as optim
-    from torch.optim.lr_scheduler import (
-        CosineAnnealingLR, CosineAnnealingWarmRestarts, 
-        OneCycleLR, LinearLR, SequentialLR
-    )
-    from torch.cuda.amp import GradScaler, autocast
+    from torch.amp import GradScaler, autocast
     from torch.nn.parallel import DistributedDataParallel as DDP
-    from torch.distributed import init_process_group, destroy_process_group
-    from torch.utils.tensorboard import SummaryWriter
+    from torch.optim.lr_scheduler import (
+        CosineAnnealingLR,
+        CosineAnnealingWarmRestarts,
+        LinearLR,
+        OneCycleLR,
+        SequentialLR,
+    )
     TORCH_AVAILABLE = True
 except ImportError:
     TORCH_AVAILABLE = False
+
+if TORCH_AVAILABLE:
+    try:
+        from torch.distributed import destroy_process_group, init_process_group
+    except ImportError:  # distributed unavailable (e.g. some Windows builds)
+        def init_process_group(*a: Any, **k: Any) -> None: ...
+        def destroy_process_group(*a: Any, **k: Any) -> None: ...
+
+try:
+    from torch.utils.tensorboard import SummaryWriter
+except ImportError:
+    SummaryWriter = None  # optional — tensorboard not installed
 
 
 @dataclass
@@ -372,16 +385,20 @@ class AdvancedTrainingEngine:
         self.model = None
         self.optimizer = None
         self.scheduler = None
-        self.scaler = GradScaler() if config.mixed_precision else None
         self.tensorboard_writer = None
-        
+
         self.device = None
         if TORCH_AVAILABLE:
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.scaler = (
+            GradScaler(self.device.type) if (config.mixed_precision and TORCH_AVAILABLE) else None
+        )
         
         self.best_val_loss = float('inf')
         self.patience_counter = 0
         self.global_step = 0
+        self._micro_step = 0
+        self.nan_skips = 0
         
         if config.log_tensorboard and TORCH_AVAILABLE:
             try:
@@ -443,54 +460,67 @@ class AdvancedTrainingEngine:
         batch = batch.to(self.device)
         targets = targets.to(self.device)
         
+        accum = max(int(self.config.gradient_accumulation_steps), 1)
+        grad_norm = 0.0
+
         if self.config.mixed_precision:
-            with autocast():
+            with autocast(device_type=self.device.type):
                 outputs = self.model(batch)
                 loss = self.loss_engine.compute_loss(outputs, targets, self.model)
-                
+
                 if lam != 1.0:
                     loss_a = self.loss_engine.compute_loss(outputs, targets_a)
                     loss_b = self.loss_engine.compute_loss(outputs, targets_b)
                     loss = lam * loss_a + (1 - lam) * loss_b
-            
-            self.scaler.scale(loss).backward()
-            
-            if self.global_step % self.config.gradient_accumulation_steps == 0:
-                self.scaler.unscale_(self.optimizer)
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.max_grad_norm)
-                self.scaler.step(self.optimizer)
-                self.scaler.update()
-                self.optimizer.zero_grad()
+
+            if not torch.isfinite(loss):
+                self.nan_skips += 1
+                self.optimizer.zero_grad(set_to_none=True)
+                self._micro_step += 1
+                return 0.0, 0.0
+            self.scaler.scale(loss / accum).backward()
         else:
             outputs = self.model(batch)
             loss = self.loss_engine.compute_loss(outputs, targets, self.model)
-            
+
             if lam != 1.0:
                 loss_a = self.loss_engine.compute_loss(outputs, targets_a)
                 loss_b = self.loss_engine.compute_loss(outputs, targets_b)
                 loss = lam * loss_a + (1 - lam) * loss_b
-            
-            loss = loss / self.config.gradient_accumulation_steps
-            loss.backward()
-            
-            if self.global_step % self.config.gradient_accumulation_steps == 0:
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.max_grad_norm)
-                self.optimizer.step()
-                self.optimizer.zero_grad()
-        
-        self.global_step += 1
-        
-        if self.scheduler is not None:
-            self.scheduler.step()
-        
-        total_norm = 0.0
-        for p in self.model.parameters():
-            if p.grad is not None:
-                param_norm = p.grad.data.norm(2)
-                total_norm += param_norm.item() ** 2
-        total_norm = total_norm ** 0.5
-        
-        return loss.item(), total_norm
+
+            if not torch.isfinite(loss):
+                self.nan_skips += 1
+                self.optimizer.zero_grad(set_to_none=True)
+                self._micro_step += 1
+                return 0.0, 0.0
+            (loss / accum).backward()
+
+        self._micro_step += 1
+        stepped = False
+        if self._micro_step % accum == 0:
+            if self.scaler is not None:
+                self.scaler.unscale_(self.optimizer)
+            grad_norm_t = torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.max_grad_norm)
+            grad_norm = float(grad_norm_t)
+            if torch.isfinite(grad_norm_t):
+                if self.scaler is not None:
+                    self.scaler.step(self.optimizer)
+                    self.scaler.update()
+                else:
+                    self.optimizer.step()
+                if self.scheduler is not None:
+                    self.scheduler.step()
+                stepped = True
+            else:
+                self.nan_skips += 1
+                if self.scaler is not None:
+                    self.scaler.update()
+            self.optimizer.zero_grad(set_to_none=True)
+
+        if stepped:
+            self.global_step += 1
+
+        return loss.item(), grad_norm
     
     def validate_step(self, batch: Any, targets: torch.Tensor) -> tuple[torch.Tensor, float]:
         if not TORCH_AVAILABLE or self.model is None:
@@ -503,7 +533,7 @@ class AdvancedTrainingEngine:
         
         with torch.no_grad():
             if self.config.mixed_precision:
-                with autocast():
+                with autocast(device_type=self.device.type):
                     outputs = self.model(batch)
                     loss = self.loss_engine.compute_loss(outputs, targets, self.model)
             else:

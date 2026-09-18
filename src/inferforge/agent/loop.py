@@ -7,12 +7,11 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 
-from inferforge.agent.mcp_client import MCPClient, get_mcp_client
+from inferforge.agent.mcp_client import get_mcp_client
 from inferforge.agent.security import (
     SecurityConfig,
     SecurityManager,
     get_security_manager,
-    reset_security_manager,
 )
 from inferforge.agent.tools import (
     execute_tool_calls,

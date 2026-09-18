@@ -67,8 +67,8 @@ class UnifiedRouter:
         
         # Check HuggingFace
         try:
-            import transformers
             import torch
+            import transformers
             self._backend_health[BackendType.HUGGINGFACE] = True
         except ImportError:
             self._backend_health[BackendType.HUGGINGFACE] = False

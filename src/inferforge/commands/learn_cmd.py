@@ -46,4 +46,4 @@ def learn_command(lesson: str):
             console.print("[yellow]Tutorial paused. Re-run 'forge learn {}' to continue.[/]".format(lesson))
             return
 
-    console.print(f"\n[bold green]Tutorial complete![/] Next: check 'forge --help' to explore related commands.")
+    console.print("\n[bold green]Tutorial complete![/] Next: check 'forge --help' to explore related commands.")

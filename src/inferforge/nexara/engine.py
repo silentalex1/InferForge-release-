@@ -89,12 +89,16 @@ class NexaraEngine:
         
         return hardware
     
-    def compile_and_train(self, code: str, output_dir: Path) -> dict[str, Any]:
-        """Compile Nexara code and prepare for training."""
+    def compile_and_train(self, code: str, output_dir: Path, execute: bool = False) -> dict[str, Any]:
+        """Compile Nexara code and prepare for training.
+
+        With ``execute=True`` the first compiled model is also trained in-process via
+        :func:`train_any` and the result is returned under ``"training"``.
+        """
         # Validate code first
         is_valid, errors = self.parser.validate(code)
         if not is_valid:
-            raise ValueError(f"Nexara code validation failed:\n" + "\n".join(errors))
+            raise ValueError("Nexara code validation failed:\n" + "\n".join(errors))
         
         # Detect hardware
         hardware = self.detect_hardware()
@@ -121,13 +125,49 @@ class NexaraEngine:
         # Generate Python training script
         script_path = self.compiler.generate_python_code(compiled, output_dir / "train_nexara.py")
         
-        return {
+        result = {
             "compiled": compiled,
             "hardware": hardware,
             "status": "ready_for_training",
             "models_count": len(models),
             "script_path": str(script_path),
         }
+        if execute and compiled["models"]:
+            name, mcfg = next(iter(compiled["models"].items()))
+            result["training"] = self.train_any(**self._train_kwargs_from_compiled(name, mcfg, output_dir), hardware=hardware)
+            result["status"] = result["training"].get("status", "completed")
+        return result
+
+    @staticmethod
+    def _train_kwargs_from_compiled(name: str, mcfg: dict[str, Any], output_dir: Path) -> dict[str, Any]:
+        training = mcfg.get("training", {})
+        dataset = mcfg.get("dataset", {})
+        optimization = mcfg.get("optimization", {})
+        architecture = mcfg.get("architecture", {})
+        base = mcfg.get("base_model")
+        scratch = not base or str(base).lower() in {"scratch", "none", ""}
+        source = next((dataset.get(k) for k in ("path", "source", "file", "name") if dataset.get(k)), None)
+        return {
+            "model": None if scratch else base,
+            "data": source,
+            "output_dir": str(Path(output_dir) / name),
+            "from_scratch": scratch,
+            "scale": architecture.get("scale", "tiny"),
+            "epochs": int(training.get("epochs", 1)),
+            "batch_size": training.get("batch_size"),
+            "gradient_accumulation_steps": training.get("gradient_accumulation_steps"),
+            "learning_rate": training.get("learning_rate"),
+            "scheduler": training.get("lr_scheduler", "cosine"),
+            "seq_len": dataset.get("max_length"),
+            "peft_method": "lora" if optimization.get("use_lora") else "auto",
+            "lora_r": optimization.get("lora_r", 16),
+            "lora_alpha": optimization.get("lora_alpha", 32),
+        }
+
+    def train_any(self, **kwargs) -> dict[str, Any]:
+        """Train any model (scratch or fine-tune) through the UniversalTrainer."""
+        from inferforge.nexara.universal_trainer import train_any
+        return train_any(**kwargs)
     
     def generate_training_script(self, compiled: dict[str, Any], output_dir: Path) -> Path:
         """Generate executable training script from compiled configuration."""
@@ -136,6 +176,29 @@ class NexaraEngine:
     def validate_code(self, code: str) -> tuple[bool, list[str]]:
         """Validate Nexara code and return errors."""
         return self.parser.validate(code)
+
+    def list_recipes(self) -> list[dict[str, Any]]:
+        """List the built-in scaling recipes (nano ... gpt4o)."""
+        from inferforge.nexara.scaling import list_recipes
+        return list_recipes()
+
+    def plan_training(
+        self,
+        target: str = "tiny",
+        hardware: dict[str, Any] | None = None,
+        data_tokens: int | None = None,
+    ) -> dict[str, Any]:
+        """Build a hardware-fitted training plan for a scale recipe."""
+        from inferforge.nexara.scaling import plan_training
+        hw = hardware if hardware is not None else self.detect_hardware()
+        return plan_training(
+            target=target,
+            vram_gb=float(hw.get("gpu_memory", 0) or 0) / 1024.0,
+            ram_gb=float(hw.get("ram", 16) or 16),
+            gpu_count=int(hw.get("gpu_count", 0) or 0),
+            gpu_available=bool(hw.get("gpu_available", False)),
+            data_tokens=data_tokens,
+        )
     
     def evolve_model(
         self,

@@ -6,10 +6,9 @@ import time
 from pathlib import Path
 
 import click
+from platformdirs import user_cache_dir
 from rich.console import Console
 from rich.table import Table
-
-from platformdirs import user_cache_dir
 
 console = Console()
 

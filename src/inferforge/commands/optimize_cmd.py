@@ -48,7 +48,7 @@ def optimize_command(model: str | None, target_size: str | None, profile: str, p
 
     target_gb = _parse_target_size(target_size)
 
-    console.print(f"\n[bold cyan]Quantization Optimizer[/]")
+    console.print("\n[bold cyan]Quantization Optimizer[/]")
     if model:
         console.print(f"[bold]Model:[/] {model}")
     console.print(f"[bold]Profile:[/] {profile}")

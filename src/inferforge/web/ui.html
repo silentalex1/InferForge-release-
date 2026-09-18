@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>InferForge</title>
+  <style>
+    :root { --bg:#0A0A0B; --teal:#00F5D4; --violet:#7B61FF; --text:#E8E8E8; --line:#1F1F23; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: Inter, system-ui, sans-serif; background:var(--bg); color:var(--text); height:100vh; display:flex; }
+    aside { width:240px; border-right:1px solid var(--line); padding:16px; }
+    main { flex:1; display:flex; flex-direction:column; }
+    header { display:flex; justify-content:space-between; align-items:center; padding:12px 20px; border-bottom:1px solid var(--line); }
+    h1 { font-size:16px; color:var(--teal); margin:0; }
+    #log { flex:1; overflow:auto; padding:20px; }
+    .msg { margin:0 0 12px; white-space:pre-wrap; }
+    .user { color:var(--teal); }
+    form { display:flex; gap:8px; padding:16px; border-top:1px solid var(--line); }
+    input, select, button { font: inherit; }
+    input { flex:1; background:#111; border:1px solid var(--line); color:var(--text); border-radius:999px; padding:10px 16px; }
+    button { background:var(--teal); color:#0A0A0B; border:0; border-radius:999px; padding:10px 16px; font-weight:600; cursor:pointer; }
+    select { background:#111; color:var(--text); border:1px solid var(--line); border-radius:8px; padding:6px 10px; }
+  </style>
+</head>
+<body>
+  <aside>
+    <h1>InferForge</h1>
+    <p id="status">loading…</p>
+    <label>Model</label>
+    <select id="model"></select>
+  </aside>
+  <main>
+    <header>
+      <strong>Chat</strong>
+      <span id="backend"></span>
+    </header>
+    <div id="log"></div>
+    <form id="form">
+      <input id="prompt" placeholder="Ask InferForge…" autocomplete="off" />
+      <button type="submit">Send</button>
+    </form>
+  </main>
+  <script>
+    const log = document.getElementById('log');
+    const model = document.getElementById('model');
+    const messages = [];
+    function add(role, text) {
+      const el = document.createElement('div');
+      el.className = 'msg ' + role;
+      el.textContent = (role === 'user' ? 'You: ' : 'InferForge: ') + text;
+      log.appendChild(el);
+      log.scrollTop = log.scrollHeight;
+    }
+    async function boot() {
+      const info = await fetch('/health').then(r => r.json()).catch(() => ({ status: 'offline' }));
+      document.getElementById('status').textContent = info.status || 'ok';
+      const data = await fetch('/v1/models').then(r => r.json()).catch(() => ({ data: [] }));
+      const items = data.data || data.models || [];
+      if (!items.length) {
+        const opt = document.createElement('option');
+        opt.value = 'inferforge-beta';
+        opt.textContent = 'inferforge-beta';
+        model.appendChild(opt);
+      } else {
+        items.forEach(item => {
+          const opt = document.createElement('option');
+          opt.value = item.id || item.name;
+          opt.textContent = item.id || item.name;
+          model.appendChild(opt);
+        });
+      }
+    }
+    document.getElementById('form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const text = document.getElementById('prompt').value.trim();
+      if (!text) return;
+      document.getElementById('prompt').value = '';
+      add('user', text);
+      messages.push({ role: 'user', content: text });
+      const res = await fetch('/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: model.value, messages, stream: false })
+      });
+      const body = await res.json().catch(() => ({}));
+      const reply = body.choices?.[0]?.message?.content || body.error?.message || 'No reply. Is a model registered? Try forge list.';
+      messages.push({ role: 'assistant', content: reply });
+      add('assistant', reply);
+    });
+    boot();
+  </script>
+</body>
+</html>

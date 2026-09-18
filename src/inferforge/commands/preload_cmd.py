@@ -1,13 +1,10 @@
 from __future__ import annotations
 
 import asyncio
-import time
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 
 import click
 from rich.console import Console
-from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 
 from inferforge.core.registry import Registry
 from inferforge.engine import get_router
@@ -168,13 +165,13 @@ def preload_status():
     process = psutil.Process()
     memory_info = process.memory_info()
     
-    console.print(f"\n[bold cyan]Preloading Status[/]")
+    console.print("\n[bold cyan]Preloading Status[/]")
     console.print(f"[bold]Loaded Models:[/] {len(loaded)}")
     console.print(f"[bold]Memory Usage:[/] {memory_info.rss / (1024**3):.2f} GB")
     console.print(f"[bold]Available Memory:[/] {psutil.virtual_memory().available / (1024**3):.2f} GB")
     
     if loaded:
-        console.print(f"\n[bold]Preloaded:[/]")
+        console.print("\n[bold]Preloaded:[/]")
         for model in loaded:
             console.print(f"  • {model}")
 

@@ -5,14 +5,10 @@ from __future__ import annotations
 import json
 import shutil
 from pathlib import Path
-from typing import Any
 
 import click
 from rich.console import Console
 from rich.panel import Panel
-from rich.syntax import Syntax
-
-from inferforge.core.registry import Registry
 
 console = Console(force_terminal=True, stderr=True)
 
@@ -254,7 +250,7 @@ def list_command() -> None:
         console.print(f"  Quantization: {model['quantization']}")
         console.print(f"  Size: ~{model['size_estimate_mb']}MB")
         console.print(f"  CDN: {model['cdn_url']}")
-        console.print(f"  [dim]Local files: None (loads from CDN)[/]")
+        console.print("  [dim]Local files: None (loads from CDN)[/]")
         console.print()
 
 
@@ -283,12 +279,12 @@ def serve_command(port: int, host: str) -> None:
     handler = partial(CORSRequestHandler, directory=".")
     
     with socketserver.TCPServer((host, port), handler) as httpd:
-        console.print(f"\n[bold green]InferForge Web Dev Server[/]")
+        console.print("\n[bold green]InferForge Web Dev Server[/]")
         console.print(f"   Local:   http://{host}:{port}")
-        console.print(f"   CORS:    Enabled")
-        console.print(f"   Headers: COEP/COOP enabled")
-        console.print(f"\n[yellow]Note:[/] Models load from CDN (no local files)")
-        console.print(f"[dim]Press Ctrl+C to stop[/]\n")
+        console.print("   CORS:    Enabled")
+        console.print("   Headers: COEP/COOP enabled")
+        console.print("\n[yellow]Note:[/] Models load from CDN (no local files)")
+        console.print("[dim]Press Ctrl+C to stop[/]\n")
         
         try:
             httpd.serve_forever()
@@ -314,7 +310,7 @@ def build_command(output: str) -> None:
     # Copy src directory
     if Path("src").exists():
         shutil.copytree("src", output_dir / "src", dirs_exist_ok=True)
-        console.print(f"[green]OK[/] Copied: src/")
+        console.print("[green]OK[/] Copied: src/")
     
     # Copy public directory
     if Path("public").exists():
@@ -323,7 +319,7 @@ def build_command(output: str) -> None:
                 shutil.copy(item, output_dir / item.name)
             elif item.is_dir():
                 shutil.copytree(item, output_dir / item.name, dirs_exist_ok=True)
-        console.print(f"[green]OK[/] Copied: public/")
+        console.print("[green]OK[/] Copied: public/")
     
     console.print()
     console.print(Panel.fit(
@@ -366,7 +362,7 @@ def deploy_command(platform: str, build_dir: str) -> None:
             console.print(f"[red]Unknown platform:[/] {platform}")
             return
         
-        console.print(f"\n[green] Deployed successfully![/]")
+        console.print("\n[green] Deployed successfully![/]")
     
     except FileNotFoundError:
         console.print(f"[red]Error:[/] {platform} CLI not found")

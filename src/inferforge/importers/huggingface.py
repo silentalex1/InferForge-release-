@@ -5,15 +5,15 @@ Supports pulling models from Hugging Face Hub
 
 from __future__ import annotations
 
-import os
 import hashlib
 import json
+import os
 import shutil
 from pathlib import Path
 from typing import Optional
 
 try:
-    from huggingface_hub import snapshot_download, hf_hub_download
+    from huggingface_hub import hf_hub_download, snapshot_download
     HUGGINGFACE_AVAILABLE = True
 except ImportError:
     HUGGINGFACE_AVAILABLE = False
@@ -45,8 +45,8 @@ class HuggingFaceImporter:
         
         return False, None
     
-    def pull_model(self, model_id: str, force: bool = False) -> Path:
-        """Pull model from Hugging Face Hub."""
+    def pull_model(self, model_id: str, force: bool = False, quant: Optional[str] = None, revision: Optional[str] = None) -> Path:
+        """Pull model from Hugging Face Hub, with smart single-GGUF quant selection."""
         if not HUGGINGFACE_AVAILABLE:
             raise RuntimeError(
                 "huggingface_hub is required. Install with: pip install huggingface_hub"
@@ -59,20 +59,60 @@ class HuggingFaceImporter:
             print("Use --force to re-download.")
             return existing_path
         
+        # Check if this repository contains GGUF files to pull only the needed quant
+        try:
+            from huggingface_hub import hf_hub_download, list_repo_files
+            files = list_repo_files(repo_id=model_id, revision=revision)
+            gguf_files = [f for f in files if f.lower().endswith(".gguf")]
+            if gguf_files:
+                selected_gguf = None
+                if quant:
+                    q_clean = quant.lower().replace("-", "_")
+                    for gf in gguf_files:
+                        if q_clean in gf.lower().replace("-", "_"):
+                            selected_gguf = gf
+                            break
+                if not selected_gguf:
+                    # Auto-select balanced quantization: Q4_K_M > Q5_K_M > Q4_0 > first available
+                    for preferred in ("q4_k_m", "q4_k", "q5_k_m", "q4_0", "q8_0"):
+                        for gf in gguf_files:
+                            if preferred in gf.lower():
+                                selected_gguf = gf
+                                break
+                        if selected_gguf:
+                            break
+                    if not selected_gguf:
+                        selected_gguf = gguf_files[0]
+                
+                print(f"Smart GGUF download: selected {selected_gguf} (saving bandwidth vs full repo)")
+                downloaded_file = hf_hub_download(
+                    repo_id=model_id,
+                    filename=selected_gguf,
+                    cache_dir=self.cache_dir,
+                    revision=revision,
+                )
+                if self.forge_models_dir:
+                    forge_model_path = self.forge_models_dir / model_id.replace("/", "_")
+                    forge_model_path.mkdir(parents=True, exist_ok=True)
+                    dest_file = forge_model_path / Path(downloaded_file).name
+                    shutil.copy2(downloaded_file, dest_file)
+                    return dest_file
+                return Path(downloaded_file)
+        except Exception:
+            # Fall back to standard snapshot download if list_repo_files is restricted or fails
+            pass
+
         print(f"Pulling model from Hugging Face: {model_id}")
         
         try:
-            # Download model using huggingface_hub
             downloaded_path = snapshot_download(
                 repo_id=model_id,
                 cache_dir=self.cache_dir,
-                local_dir=None,  # Use default cache structure
-                local_dir_use_symlinks=False,
+                revision=revision,
             )
             
             print(f"Model downloaded to: {downloaded_path}")
             
-            # Copy to Forge models directory if specified
             if self.forge_models_dir:
                 forge_model_path = self._copy_to_forge_dir(model_id, downloaded_path)
                 return forge_model_path
@@ -81,6 +121,39 @@ class HuggingFaceImporter:
             
         except Exception as e:
             raise RuntimeError(f"Failed to pull model from Hugging Face: {e}")
+
+    def download_direct_url(self, url: str, output_path: Optional[Path] = None, force: bool = False) -> Path:
+        """Download a model directly from an HTTP/HTTPS URL with streaming and resume."""
+        from urllib.parse import unquote, urlparse
+
+        import httpx
+
+        parsed = urlparse(url)
+        filename = unquote(Path(parsed.path).name) or "model.gguf"
+        dest_dir = output_path.parent if output_path else (self.forge_models_dir or Path.cwd())
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest_file = output_path if output_path else dest_dir / filename
+
+        if dest_file.exists() and not force:
+            print(f"File already exists at: {dest_file}")
+            return dest_file
+
+        temp_file = dest_file.with_suffix(dest_file.suffix + ".part")
+        initial_bytes = temp_file.stat().st_size if temp_file.exists() else 0
+        headers = {"Range": f"bytes={initial_bytes}-"} if initial_bytes > 0 else {}
+
+        with httpx.Client(follow_redirects=True, timeout=60.0) as client:
+            with client.stream("GET", url, headers=headers) as response:
+                response.raise_for_status()
+                mode = "ab" if initial_bytes > 0 else "wb"
+                with open(temp_file, mode) as f:
+                    for chunk in response.iter_bytes(chunk_size=1024 * 1024):
+                        f.write(chunk)
+        
+        if dest_file.exists():
+            dest_file.unlink()
+        temp_file.rename(dest_file)
+        return dest_file
     
     def _copy_to_forge_dir(self, model_id: str, source_path: str) -> Path:
         """Copy downloaded model to Forge models directory."""

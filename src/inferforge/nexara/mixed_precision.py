@@ -2,9 +2,34 @@
 
 from __future__ import annotations
 
+import math
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
+
+
+def _has_non_finite(value: Any) -> bool:
+    """Recursively detect inf/nan in tensors, numpy arrays, mappings, sequences, or scalars."""
+    if value is None:
+        return False
+    if isinstance(value, (int, float)):
+        return not math.isfinite(value)
+    if isinstance(value, Mapping):
+        return any(_has_non_finite(v) for v in value.values())
+    if hasattr(value, "grad") and getattr(value, "grad", None) is not None and not hasattr(value, "isfinite"):
+        return _has_non_finite(value.grad)
+    isfinite = getattr(value, "isfinite", None)
+    if callable(isfinite):
+        try:
+            result = isfinite()
+            if hasattr(result, "all"):
+                return not bool(result.all())
+        except Exception:
+            pass
+    if isinstance(value, Iterable) and not isinstance(value, (str, bytes)):
+        return any(_has_non_finite(v) for v in value)
+    return False
 
 
 class PrecisionMode(Enum):
@@ -86,9 +111,7 @@ class MixedPrecisionEngine:
     
     def check_overflow(self, gradients: Any) -> bool:
         """Check if gradients have overflowed."""
-        # Simplified overflow detection
-        # In real implementation, check for inf/nan in gradients
-        has_overflow = False  # Placeholder
+        has_overflow = _has_non_finite(gradients)
         
         if has_overflow:
             self.overflow_count += 1
