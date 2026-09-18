@@ -1,0 +1,11 @@
+name = "inferforge-email"
+main = "src/index.ts"
+compatibility_date = "2024-11-01"
+
+[vars]
+FROM_EMAIL = "noreply@hyperneural.cfd"
+FROM_NAME = "InferForge"
+
+[[kv_namespaces]]
+binding = "CONNECT_KV"
+id = "f1bfb2b50284438f944dc2a7288b0cd0"

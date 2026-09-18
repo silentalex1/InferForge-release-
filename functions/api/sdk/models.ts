@@ -4,6 +4,7 @@ import {
   listRecords,
   probeUpstream,
   readStats,
+  slugify,
   today,
 } from "../../../lib/sdk/store"
 import type { SdkRecord } from "../../../lib/sdk/store"
@@ -36,12 +37,16 @@ export async function onRequest(context: any): Promise<Response> {
 
   const url = new URL(request.url)
   const owner = (url.searchParams.get("owner") || "").trim().toLowerCase()
+  const slugFilter = (url.searchParams.get("slug") || "").trim()
+  const wanted = slugFilter ? slugify(slugFilter) : ""
   const probe = url.searchParams.get("probe") !== "0"
 
   const all = await listRecords(kv)
-  const mine = owner
-    ? all.filter((r: SdkRecord) => (r.owner || "").toLowerCase() === owner)
-    : all
+  const mine = all.filter((r: SdkRecord) => {
+    if (owner && (r.owner || "").toLowerCase() !== owner) return false
+    if (wanted && r.slug !== wanted) return false
+    return true
+  })
 
   const day = today()
 

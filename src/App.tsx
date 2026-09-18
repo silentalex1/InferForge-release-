@@ -10,6 +10,7 @@ import Pricing from './pages/Pricing'
 import Login from './pages/Login'
 import CreateAccount from './pages/CreateAccount'
 import Account from './pages/Account'
+import Reset from './pages/Reset'
 import UserDashboard from './pages/UserDashboard'
 import OurModels from './pages/OurModels'
 import Batnight from './pages/Batnight'
@@ -38,6 +39,7 @@ export default function App() {
           <Route path="/registar" element={<Navigate to="/create-account" replace />} />
           <Route path="/signup" element={<Navigate to="/create-account" replace />} />
           <Route path="/account" element={<Account />} />
+          <Route path="/reset/:username" element={<Reset />} />
           <Route path="/dashboard/:username" element={<UserDashboard />} />
           <Route path="/our-models" element={<OurModels />} />
           <Route path="/batnight" element={<Batnight />} />

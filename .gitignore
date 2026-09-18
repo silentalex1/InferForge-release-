@@ -1,0 +1,10 @@
+# Local Netlify folder
+.netlify
+
+.pytest_tmp/
+
+.wheel-build/
+__pycache__/
+*.pyc
+*.egg-info/
+node_modules/

@@ -25,29 +25,29 @@ export default function Download() {
       id: 'windows',
       label: 'Windows',
       icon: <Monitor className="w-5 h-5" />,
-      command: 'powershell -c "irm https://hyperneural.cfd/install.ps1 | iex"',
-      description: 'PowerShell one-line installer. Requires Python 3.11+.',
+      command: 'powershell -c "irm https://inferforge.org/install.ps1 | iex"',
+      description: 'One line in PowerShell. Installs the built forge CLI from the InferForge package index, no source checkout.',
     },
     {
       id: 'macos',
       label: 'macOS',
       icon: <Apple className="w-5 h-5" />,
-      command: 'curl -fsSL https://hyperneural.cfd/install.sh | bash',
-      description: 'Installs via pip and sets up the forge CLI on Apple Silicon and Intel.',
+      command: 'curl -fsSL https://inferforge.org/install.sh | bash',
+      description: 'Installs the built forge CLI on Apple Silicon and Intel.',
     },
     {
       id: 'linux',
       label: 'Linux',
       icon: <Terminal className="w-5 h-5" />,
-      command: 'curl -fsSL https://hyperneural.cfd/install.sh | bash',
+      command: 'curl -fsSL https://inferforge.org/install.sh | bash',
       description: 'Universal installer for Debian, Ubuntu, Fedora, and Arch.',
     },
     {
       id: 'pip',
       label: 'pip',
       icon: <Package className="w-5 h-5" />,
-      command: 'pip install inferforge',
-      description: 'Install directly with any Python 3.11+ environment.',
+      command: 'pip install inferforge --index-url https://hyperneural.cfd/pypi/simple/ --extra-index-url https://pypi.org/simple',
+      description: 'Install directly into any Python 3.10+ environment from the InferForge package index.',
     },
   ]
 
@@ -94,6 +94,8 @@ export default function Download() {
         </div>
         <h1 className="text-4xl md:text-5xl font-bold mb-4 tracking-tight">Install InferForge</h1>
         <p className="text-lg md:text-xl text-gray-400">Up and running in under a minute.</p>
+        <a href="/InferForgeInstaller.exe" download className="inline-flex items-center gap-2 mt-6 px-8 py-3.5 rounded-xl bg-[#3b82f6] text-white font-bold hover:bg-[#2563eb] transition">Download the InferForge Installer (.exe) <DownloadIcon className="w-5 h-5" /></a>
+        <p className="text-xs text-white/30 mt-2">Guided Windows setup. The one-line command below installs the same build.</p>
       </div>
 
       <div className="card max-w-3xl mx-auto mb-16 p-0 overflow-hidden">

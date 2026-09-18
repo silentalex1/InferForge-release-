@@ -8,6 +8,7 @@ type AuthValue = {
   user: User | null
   register: (username: string, email: string, password: string) => { ok: boolean; error?: string }
   login: (username: string, password: string) => Promise<{ ok: boolean; error?: string }>
+  resetPassword: (username: string, password: string, code: string) => Promise<{ ok: boolean; error?: string }>
   logout: () => void
   requestCode: (email: string) => string
 }
@@ -16,6 +17,7 @@ const AuthContext = createContext<AuthValue>({
   user: null,
   register: () => ({ ok: false }),
   login: async () => ({ ok: false }),
+  resetPassword: async () => ({ ok: false }),
   logout: () => {},
   requestCode: () => '',
 })
@@ -104,9 +106,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  const resetPassword = async (username: string, password: string, code: string) => {
+    const lowerU = username.toLowerCase()
+    try {
+      const r = await fetch("https://inferforge-email.asdwwas233.workers.dev/api/auth/reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: lowerU, password, code }),
+      })
+      const j: any = await r.json().catch(() => ({}))
+      if (!r.ok || !j?.ok) return { ok: false, error: j?.error || 'Could not reset the password.' }
+    } catch {
+      return { ok: false, error: 'Network error. Check your connection.' }
+    }
+    const users = loadUsers()
+    const idx = users.findIndex(u => u.username.toLowerCase() === lowerU)
+    if (idx >= 0) {
+      users[idx] = { ...users[idx], password }
+      saveUsers(users)
+    }
+    if (user && user.username.toLowerCase() === lowerU) setUser(null)
+    return { ok: true }
+  }
+
   const logout = () => setUser(null)
 
-  return <AuthContext.Provider value={{ user, register, login, logout, requestCode }}>{children}</AuthContext.Provider>
+  return <AuthContext.Provider value={{ user, register, login, logout, requestCode, resetPassword }}>{children}</AuthContext.Provider>
 }
 
 export function useAuth() {

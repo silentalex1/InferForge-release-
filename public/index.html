@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HyperNeural | The Complete Local AI Toolkit</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: Inter, system-ui, sans-serif; background: #0A0A0B; color: #fff; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+    .card { text-align: center; max-width: 680px; padding: 48px 32px; }
+    .logo { display: inline-flex; align-items: center; justify-content: center; width: 56px; height: 56px; border-radius: 14px; background: #fff; color: #000; font-weight: 800; font-size: 18px; margin-bottom: 24px; }
+    h1 { font-size: 40px; font-weight: 800; letter-spacing: -0.02em; margin-bottom: 12px; }
+    p { color: rgba(255,255,255,0.5); font-size: 15px; line-height: 1.6; margin-bottom: 28px; }
+    .cmd { font-family: "IBM Plex Mono", monospace; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08); padding: 14px 20px; border-radius: 10px; display: inline-block; font-size: 14px; color: #4ade80; cursor: pointer; transition: border-color .15s; }
+    .cmd:hover { border-color: rgba(74,222,128,0.4); }
+    .tabs { margin-top: 28px; display: flex; gap: 20px; justify-content: center; flex-wrap: wrap; }
+    .tab { color: rgba(255,255,255,0.45); font-size: 13px; background: none; border: none; border-bottom: 1px solid transparent; padding: 2px 0; cursor: pointer; font-family: inherit; transition: color .15s; }
+    .tab:hover { color: #fff; }
+    .tab.active { color: #fff; border-bottom-color: #4ade80; }
+    .hint { margin-top: 14px; font-size: 11px; color: rgba(255,255,255,0.25); }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">HN</div>
+    <h1>HyperNeural</h1>
+    <p>The complete local AI toolkit. Forge models, run them faster.</p>
+    <code class="cmd" id="cmd" onclick="copyCmd()" title="Click to copy">pip install inferforge --index-url https://hyperneural.cfd/pypi/simple/ --extra-index-url https://pypi.org/simple</code>
+    <div class="hint" id="hint"></div>
+    <div class="tabs">
+      <button class="tab active" data-cmd="pip install inferforge --index-url https://hyperneural.cfd/pypi/simple/ --extra-index-url https://pypi.org/simple" onclick="setTab(this)">PyPI index</button>
+      <button class="tab" data-cmd="curl -fsSL https://hyperneural.cfd/install.sh | bash" onclick="setTab(this)">macOS/Linux installer</button>
+      <button class="tab" data-cmd="powershell -c &quot;irm https://hyperneural.cfd/install.ps1 | iex&quot;" onclick="setTab(this)">Windows installer</button>
+    </div>
+  </div>
+  <script>
+    function setTab(btn) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById('cmd').textContent = btn.dataset.cmd.replace(/&quot;/g, '"');
+      document.getElementById('hint').textContent = '';
+    }
+    function copyCmd() {
+      var text = document.getElementById('cmd').textContent;
+      navigator.clipboard.writeText(text).then(function () {
+        document.getElementById('hint').textContent = 'copied to clipboard';
+        setTimeout(function () { document.getElementById('hint').textContent = ''; }, 1400);
+      });
+    }
+  </script>
+</body>
+</html>

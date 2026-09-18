@@ -1,0 +1,9 @@
+{
+  "name": "inferforge-email",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {}
+}

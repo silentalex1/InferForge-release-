@@ -1,0 +1,21 @@
+name = "hyperneural-site"
+main = "src/index.ts"
+compatibility_date = "2024-11-01"
+account_id = "9556cdfc014732fa00ddaf2d716ce8c4"
+
+[assets]
+directory = "../public"
+binding = "ASSETS"
+not_found_handling = "none"
+
+[[routes]]
+pattern = "hyperneural.cfd/*"
+zone_name = "hyperneural.cfd"
+
+[[routes]]
+pattern = "api.inferforge.org/*"
+zone_name = "inferforge.org"
+
+[[routes]]
+pattern = "batnight.inferforge.org/*"
+zone_name = "inferforge.org"
