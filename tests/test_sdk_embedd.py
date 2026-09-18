@@ -128,6 +128,7 @@ def _patch_publish(monkeypatch: pytest.MonkeyPatch, result: dict | None = None) 
         return result if result is not None else {"ok": True}
 
     monkeypatch.setattr("inferforge.embedded.publish.publish_sdk", fake_publish)
+    monkeypatch.setattr("inferforge.embedded.publish.persona_from_ollama", lambda name: "")
     return calls
 
 

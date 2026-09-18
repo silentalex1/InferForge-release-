@@ -147,10 +147,12 @@ def _resolve_upstream(endpoint: str | None, settings: dict) -> str:
 def _embed_sdk(model: str, project_path: str | None, endpoint: str | None, site: str | None, publish: bool, rotate_key: bool) -> None:
     from inferforge.core.config import load_settings, save_settings
     from inferforge.embedded.publish import (
+        HOSTED_MODEL,
         default_site,
         is_local_endpoint,
         new_embed_key,
         new_publish_token,
+        persona_from_ollama,
         publish_sdk,
         sdk_slug,
         sdk_url,
@@ -216,6 +218,8 @@ def _embed_sdk(model: str, project_path: str | None, endpoint: str | None, site:
         encoding="utf-8",
     )
 
+    persona = persona_from_ollama(record.ollama_name or model)
+
     published = {"ok": False, "error": "skipped"}
     if publish:
         sys.stdout.write(f"Publishing {model} to {site_url} ...\n")
@@ -229,6 +233,8 @@ def _embed_sdk(model: str, project_path: str | None, endpoint: str | None, site:
             endpoint=upstream,
             fallback=upstream,
             owner=_sdk_owner(),
+            system=persona,
+            hosted_model=HOSTED_MODEL,
         )
 
     config = {
@@ -241,6 +247,8 @@ def _embed_sdk(model: str, project_path: str | None, endpoint: str | None, site:
         "hosted_sdk_url": hosted_url,
         "connected_link": connected_link,
         "embed_key": embed_key,
+        "hosted_model": HOSTED_MODEL,
+        "persona_chars": len(persona),
         "published": bool(published.get("ok")),
         "publish_error": "" if published.get("ok") else str(published.get("error") or ""),
         "forge_version": "0.2.0",
@@ -279,12 +287,19 @@ def _embed_sdk(model: str, project_path: str | None, endpoint: str | None, site:
     sys.stdout.write(f'  <script src="./{sdk_file.name}" data-key="{embed_key}" data-mount="#inferforge-chat"></script>\n')
     sys.stdout.write(f"\nAlways-on: {model} is registered in always_on_models, so `forge serve` keeps it loaded.\n")
     sys.stdout.write(f"  Talking to Ollama directly? run:  python {keepalive_file}\n")
-    if local_only:
-        sys.stdout.write(
-            f"\nUpstream {upstream} is local, so {site_url} cannot reach it from the internet.\n"
-            "  Visitors on other machines will see the model as offline.\n"
-            f"  Expose `forge serve` on a public HTTPS URL, then:  forge embedd {model} --sdk --endpoint https://your-public-url\n"
-        )
+    if published.get("ok"):
+        sys.stdout.write(f"\nHosted: {site_url} answers for {model} around the clock, even with this machine off.\n")
+        if persona:
+            sys.stdout.write(f"  Cloud model {HOSTED_MODEL} carries this model's persona ({len(persona)} chars from its Modelfile).\n")
+        else:
+            sys.stdout.write(f"  Cloud model {HOSTED_MODEL} answers without a persona: no SYSTEM prompt was found in the Modelfile.\n")
+        if local_only:
+            sys.stdout.write(
+                "  Your own weights take over whenever forge serve is reachable at a public URL:\n"
+                f"    forge embedd {model} --sdk --endpoint https://your-public-url\n"
+            )
+        else:
+            sys.stdout.write(f"  Your own weights at {upstream} answer first whenever they are reachable.\n")
     sys.stdout.flush()
 
 

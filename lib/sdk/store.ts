@@ -8,6 +8,8 @@ export interface SdkRecord {
   token_hash: string
   created_at: string
   updated_at: string
+  system?: string
+  hosted_model?: string
 }
 
 export const KEY_PREFIX = "sdk:"
@@ -195,4 +197,100 @@ export function publicView(record: SdkRecord) {
     created_at: record.created_at,
     updated_at: record.updated_at,
   }
+}
+
+export const HOSTED_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+
+export const HOSTED_MODELS = [
+  HOSTED_MODEL,
+  "@cf/meta/llama-3.1-8b-instruct",
+  "@cf/meta/llama-3.1-70b-instruct",
+  "@cf/qwen/qwen2.5-coder-32b-instruct",
+  "@cf/mistral/mistral-7b-instruct-v0.2",
+]
+
+export function isPrivateHost(endpoint: string): boolean {
+  let host = ""
+  try {
+    host = new URL(endpoint).hostname.toLowerCase().replace(/^\[|\]$/g, "")
+  } catch {
+    return true
+  }
+  if (host === "localhost" || host === "0.0.0.0" || host === "::1" || host.endsWith(".local")) return true
+  return /^127\.|^10\.|^192\.168\.|^169\.254\.|^172\.(1[6-9]|2[0-9]|3[01])\./.test(host)
+}
+
+export function withPersona(messages: any[], system: string): any[] {
+  const list = Array.isArray(messages) ? messages : []
+  if (!system) return list
+  if (list.some((m) => m && m.role === "system")) return list
+  return [{ role: "system", content: system }, ...list]
+}
+
+export function openAiChunk(id: string, model: string, created: number, delta: Record<string, string>, finish: string | null) {
+  return {
+    id,
+    object: "chat.completion.chunk",
+    created,
+    model,
+    choices: [{ index: 0, delta, finish_reason: finish }],
+  }
+}
+
+export async function hostedChat(ai: any, record: SdkRecord, body: any, extra: Record<string, string> = {}): Promise<Response> {
+  const model = HOSTED_MODELS.includes(record.hosted_model || "") ? (record.hosted_model as string) : HOSTED_MODEL
+  const messages = withPersona(body?.messages, record.system || "")
+  const opts: Record<string, unknown> = { messages, stream: !!body?.stream }
+  if (typeof body?.max_tokens === "number") opts.max_tokens = body.max_tokens
+  if (typeof body?.temperature === "number") opts.temperature = body.temperature
+  const id = "chatcmpl-" + crypto.randomUUID().replace(/-/g, "").slice(0, 12)
+  const created = Math.floor(Date.now() / 1000)
+
+  if (!body?.stream) {
+    const r: any = await ai.run(model, opts)
+    const content = typeof r === "string" ? r : String(r?.response ?? "")
+    return json(
+      {
+        id,
+        object: "chat.completion",
+        created,
+        model: record.model,
+        choices: [{ index: 0, message: { role: "assistant", content }, finish_reason: "stop" }],
+        usage: r?.usage || { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+      },
+      200,
+      extra
+    )
+  }
+
+  const source: ReadableStream = await ai.run(model, opts)
+  const enc = new TextEncoder()
+  const dec = new TextDecoder()
+  let buf = ""
+  const sse = new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, ctrl) {
+      buf += dec.decode(chunk, { stream: true })
+      const lines = buf.split("\n")
+      buf = lines.pop() || ""
+      for (const line of lines) {
+        const t = line.trim()
+        if (!t.startsWith("data:")) continue
+        const payload = t.slice(5).trim()
+        if (payload === "[DONE]") continue
+        try {
+          const j = JSON.parse(payload)
+          const tok = typeof j === "string" ? j : String(j?.response ?? "")
+          if (tok) ctrl.enqueue(enc.encode("data: " + JSON.stringify(openAiChunk(id, record.model, created, { content: tok }, null)) + "\n\n"))
+        } catch {}
+      }
+    },
+    flush(ctrl) {
+      ctrl.enqueue(enc.encode("data: " + JSON.stringify(openAiChunk(id, record.model, created, {}, "stop")) + "\n\n"))
+      ctrl.enqueue(enc.encode("data: [DONE]\n\n"))
+    },
+  })
+  return new Response(source.pipeThrough(sse), {
+    status: 200,
+    headers: corsHeaders({ "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-store", ...extra }),
+  })
 }

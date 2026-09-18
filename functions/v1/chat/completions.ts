@@ -3,30 +3,17 @@ import {
   bumpStats,
   cleanEndpoint,
   corsHeaders,
+  hostedChat,
   isHttpUrl,
+  isPrivateHost,
   json,
+  probeUpstream,
   readRecord,
   slugify,
   timingSafeEqual,
 } from "../../../lib/sdk/store"
 
 const UPSTREAM_FAILED = 424
-
-function isPrivateHost(endpoint: string): boolean {
-  let host = ""
-  try {
-    host = new URL(endpoint).hostname.toLowerCase().replace(/^\[|\]$/g, "")
-  } catch {
-    return true
-  }
-  if (host === "localhost" || host === "0.0.0.0" || host === "::1" || host.endsWith(".local")) return true
-  if (/^127\./.test(host)) return true
-  if (/^10\./.test(host)) return true
-  if (/^192\.168\./.test(host)) return true
-  if (/^169\.254\./.test(host)) return true
-  if (/^172\.(1[6-9]|2[0-9]|3[01])\./.test(host)) return true
-  return false
-}
 
 export async function onRequest(context: any): Promise<Response> {
   const request: Request = context.request
@@ -53,10 +40,7 @@ export async function onRequest(context: any): Promise<Response> {
   const record = await readRecord(context.env.INFERFORGE_SDK, slugify(model))
   if (!record) {
     return json(
-      {
-        error: "model-not-published",
-        message: "No SDK published for '" + model + "'. Run: forge embedd " + model + " --sdk",
-      },
+      { error: "model-not-published", message: "No SDK published for '" + model + "'. Run: forge embedd " + model + " --sdk" },
       404
     )
   }
@@ -72,27 +56,35 @@ export async function onRequest(context: any): Promise<Response> {
     }
   }
 
-  const upstream = cleanEndpoint(record.endpoint)
-  if (!isHttpUrl(upstream)) {
-    track(502)
-    return json({ error: "no-upstream", message: "This model has no reachable server registered." }, UPSTREAM_FAILED)
-  }
-  if (isPrivateHost(upstream)) {
-    track(502)
-    return json(
-      {
-        error: "upstream-local",
-        message:
-          "'" + model + "' is registered on a private address (" + upstream + ") that this site cannot reach. " +
-          "Expose `forge serve` on a public HTTPS URL and re-run: forge embedd " + model + " --sdk --endpoint <public-url>",
-      },
-      UPSTREAM_FAILED
-    )
+  const serveHosted = async (): Promise<Response> => {
+    const ai = context.env.AI
+    if (!ai) {
+      track(502)
+      return json({ error: "no-hosted-runtime", message: "Hosted inference is not configured for this site." }, UPSTREAM_FAILED)
+    }
+    try {
+      const res = await hostedChat(ai, record, body, { "X-InferForge-Source": "hosted" })
+      track(200)
+      return res
+    } catch (err: any) {
+      track(502)
+      return json({ error: "hosted-error", message: String(err?.message || "hosted inference failed") }, UPSTREAM_FAILED)
+    }
   }
 
-  let upstreamResponse: Response
+  const upstream = cleanEndpoint(record.endpoint)
+  if (!isHttpUrl(upstream) || isPrivateHost(upstream)) {
+    return serveHosted()
+  }
+
+  const alive = await probeUpstream(upstream, 3000)
+  if (!alive) {
+    return serveHosted()
+  }
+
+  let own: Response
   try {
-    upstreamResponse = await fetch(upstream + "/v1/chat/completions", {
+    own = await fetch(upstream + "/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -101,34 +93,21 @@ export async function onRequest(context: any): Promise<Response> {
       },
       body: JSON.stringify({ ...body, model: record.model || model }),
     })
-  } catch (err: any) {
-    track(502)
-    return json(
-      {
-        error: "upstream-unreachable",
-        message: "Could not reach " + upstream + ": " + (err?.message || "connection failed"),
-      },
-      UPSTREAM_FAILED
-    )
+  } catch {
+    return serveHosted()
   }
 
-  track(upstreamResponse.status)
-
-  if (upstreamResponse.status >= 500) {
-    const detail = await upstreamResponse.text().catch(() => "")
-    return json(
-      {
-        error: "upstream-error",
-        status: upstreamResponse.status,
-        message: detail.slice(0, 500) || "The model server returned " + upstreamResponse.status + ".",
-      },
-      UPSTREAM_FAILED
-    )
+  if (own.status >= 500) {
+    return serveHosted()
   }
 
-  const headers = corsHeaders({
-    "Content-Type": upstreamResponse.headers.get("content-type") || "application/json; charset=utf-8",
-    "Cache-Control": "no-store",
+  track(own.status)
+  return new Response(own.body, {
+    status: own.status,
+    headers: corsHeaders({
+      "Content-Type": own.headers.get("content-type") || "application/json; charset=utf-8",
+      "Cache-Control": "no-store",
+      "X-InferForge-Source": "own",
+    }),
   })
-  return new Response(upstreamResponse.body, { status: upstreamResponse.status, headers })
 }

@@ -19,6 +19,7 @@
   .model { display: flex; align-items: center; gap: 8px; font-family: ui-monospace, monospace; font-size: 13px; color: rgba(255,255,255,0.75); }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); }
   .dot.online { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+  .dot.hosted { background: #38bdf8; box-shadow: 0 0 8px #38bdf8; }
   .dot.offline { background: var(--bad); }
   .dot.private { background: var(--warn); }
   .status-text { font-size: 12px; color: var(--dim); }
@@ -106,12 +107,12 @@
   }
 
   function setStatus(status) {
-    dot.className = "dot " + (status === "online" ? "online" : status === "private" ? "private" : "offline");
-    var label = status === "online" ? "online" : status === "private" ? "private address" : "offline";
+    var cls = status === "online" ? "online" : status === "hosted" ? "hosted" : "offline";
+    dot.className = "dot " + cls;
+    var label = status === "online" ? "online, own weights" : status === "hosted" ? "hosted on cloud" : "offline";
     document.getElementById("st-status").textContent = label;
     statusText.textContent = "· " + label;
   }
-
   function refreshStats() {
     fetch(API + "/api/sdk/models?slug=" + encodeURIComponent(slug), { headers: { "Accept": "application/json" } })
       .then(function (r) { return r.ok ? r.json() : null; })
@@ -189,22 +190,6 @@
     });
   }
 
-  function tryDirect(messages, key, onDelta) {
-    if (!record || !record.endpoint) return Promise.reject(new Error("no direct endpoint"));
-    return fetch(record.endpoint.replace(/\/+$/, "") + "/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + key },
-      body: JSON.stringify({ model: record.model, messages: messages, stream: false })
-    }).then(function (res) {
-      return res.json().then(function (j) {
-        if (!res.ok) throw new Error(j.detail || j.error || ("HTTP " + res.status));
-        var txt = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
-        if (txt) onDelta(txt);
-        return txt || "";
-      });
-    });
-  }
-
   document.getElementById("form").addEventListener("submit", function (e) {
     e.preventDefault();
     if (busy) return;
@@ -231,22 +216,16 @@
       input.focus();
     };
     chat(history.slice(), key, onDelta)
-      .catch(function (err) {
-        if (record && record.status === "private") return tryDirect(history.slice(), key, onDelta);
-        throw err;
-      })
       .then(done)
       .catch(function (err) {
         busy = false;
         send.disabled = false;
         bubble.textContent = "";
         bubble.className = "msg err";
-        bubble.textContent = "The model is not reachable right now: " + (err.message || "request failed") +
-          (record && record.status === "private" ? " (this model lives on a private machine; open this page on that machine with forge serve running)" : "");
+        bubble.textContent = "The model is not reachable right now: " + (err.message || "request failed");
         history.pop();
       });
   });
-
   if (!slug) {
     push("sys", "No model in this link. Use hyperneural.cfd/chatroom/<model>");
     document.getElementById("st-status").textContent = "no model";

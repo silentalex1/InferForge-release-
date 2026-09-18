@@ -1,5 +1,7 @@
 import {
   corsHeaders,
+  HOSTED_MODEL,
+  isPrivateHost,
   json,
   listRecords,
   probeUpstream,
@@ -8,17 +10,6 @@ import {
   today,
 } from "../../../lib/sdk/store"
 import type { SdkRecord } from "../../../lib/sdk/store"
-
-function isPrivate(endpoint: string): boolean {
-  let host = ""
-  try {
-    host = new URL(endpoint).hostname.toLowerCase().replace(/^\[|\]$/g, "")
-  } catch {
-    return true
-  }
-  if (host === "localhost" || host === "0.0.0.0" || host === "::1" || host.endsWith(".local")) return true
-  return /^127\.|^10\.|^192\.168\.|^169\.254\.|^172\.(1[6-9]|2[0-9]|3[01])\./.test(host)
-}
 
 export async function onRequest(context: any): Promise<Response> {
   const request: Request = context.request
@@ -54,7 +45,7 @@ export async function onRequest(context: any): Promise<Response> {
     mine.map(async (record) => {
       const stats = await readStats(kv, record.slug)
       const endpoint = record.endpoint || ""
-      const unreachable = isPrivate(endpoint)
+      const unreachable = isPrivateHost(endpoint)
       const online = unreachable ? false : probe ? await probeUpstream(endpoint) : false
 
       return {
@@ -74,8 +65,11 @@ export async function onRequest(context: any): Promise<Response> {
         key: record.key,
         created_at: record.created_at,
         updated_at: record.updated_at,
-        status: online ? "online" : unreachable ? "private" : "offline",
+        status: online ? "online" : "hosted",
         online,
+        upstream_private: unreachable,
+        hosted_model: record.hosted_model || HOSTED_MODEL,
+        has_persona: Boolean(record.system),
         requests: {
           total: stats.total,
           ok: stats.ok,

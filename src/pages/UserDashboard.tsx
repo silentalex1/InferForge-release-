@@ -38,8 +38,11 @@ type Model = {
   key: string
   created_at: string
   updated_at: string
-  status: 'online' | 'offline' | 'private'
+  status: 'online' | 'hosted' | 'offline' | 'private'
   online: boolean
+  upstream_private?: boolean
+  hosted_model?: string
+  has_persona?: boolean
   requests: Requests
 }
 
@@ -58,7 +61,8 @@ function chatroomUrl(slug: string, key: string): string {
 }
 
 const statusStyles: Record<Model['status'], { dot: string; text: string; label: string }> = {
-  online: { dot: 'bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.8)]', text: 'text-emerald-300', label: 'Online' },
+  online: { dot: 'bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.8)]', text: 'text-emerald-300', label: 'Online, own weights' },
+  hosted: { dot: 'bg-sky-400 shadow-[0_0_10px_rgba(56,189,248,0.8)]', text: 'text-sky-300', label: 'Hosted on cloud' },
   offline: { dot: 'bg-rose-400', text: 'text-rose-300', label: 'Offline' },
   private: { dot: 'bg-amber-400', text: 'text-amber-300', label: 'Private machine' },
 }
@@ -241,10 +245,10 @@ export default function UserDashboard() {
             <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-4">
               <p className="flex items-center gap-2 text-[12px] font-medium text-white/60">
                 <span className={`h-2 w-2 rounded-full ${totals.online > 0 ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]' : 'bg-white/25'}`} />
-                {totals.online > 0 ? totals.online + ' model' + (totals.online > 1 ? 's' : '') + ' live' : 'No models live'}
+                {(data?.count ?? 0) > 0 ? (data?.count ?? 0) + ' model' + ((data?.count ?? 0) > 1 ? 's' : '') + ' live' : 'No models live'}
               </p>
               <p className="mt-1.5 text-[11px] leading-relaxed text-white/30">
-                Chatrooms hosted on hyperneural.cfd, relayed through inferforge.org.
+                {totals.online} on own weights, {(data?.count ?? 0) - totals.online} hosted on cloud.
               </p>
             </div>
           </div>
@@ -283,7 +287,7 @@ export default function UserDashboard() {
 
           <div id="overview" className="mt-8 grid scroll-mt-24 gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <StatCard icon={Boxes} label="Published" value={loading ? '·' : String(data?.count ?? 0)} hint="via forge embedd" tone="bg-amber-400/15 text-amber-300" />
-            <StatCard icon={Radio} label="Online now" value={loading ? '·' : String(totals.online)} hint="live upstream check" tone="bg-emerald-400/15 text-emerald-300" />
+            <StatCard icon={Radio} label="Own weights live" value={loading ? '·' : String(totals.online)} hint="rest answer from cloud" tone="bg-emerald-400/15 text-emerald-300" />
             <StatCard icon={Activity} label="Requests today" value={loading ? '·' : String(totals.today)} hint="across all models" tone="bg-sky-400/15 text-sky-300" />
             <StatCard icon={Server} label="Requests total" value={loading ? '·' : String(totals.requests)} hint={totals.failed + ' failed'} tone="bg-white/10 text-white/70" />
           </div>
@@ -354,13 +358,13 @@ export default function UserDashboard() {
                     </div>
                   </div>
 
-                  {m.status === 'private' && (
-                    <div className="flex items-start gap-3 border-b border-amber-400/15 bg-amber-400/[0.06] px-6 py-3.5 text-[13px] leading-relaxed text-amber-100/80">
-                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
+                  {m.status === 'hosted' && (
+                    <div className="flex items-start gap-3 border-b border-sky-400/15 bg-sky-400/[0.06] px-6 py-3.5 text-[13px] leading-relaxed text-sky-100/80">
+                      <Radio className="mt-0.5 h-4 w-4 shrink-0 text-sky-300" />
                       <p>
-                        This model runs on a private machine. The chatroom answers from that machine while{' '}
-                        <code className="font-mono">forge serve</code> is up. To make it public, re-run{' '}
-                        <code className="font-mono">forge embedd {m.model} --sdk --endpoint https://your-public-url</code>.
+                        Answering from the cloud around the clock{m.has_persona ? " with this model's persona" : ''}. Your own
+                        weights take over whenever <code className="font-mono">forge serve</code> is reachable at a public URL:{' '}
+                        <code className="font-mono">forge embedd {m.model} --sdk --endpoint https://your-public-url</code>
                       </p>
                     </div>
                   )}
@@ -412,8 +416,8 @@ export default function UserDashboard() {
                         </span>
                       </div>
                       <div className="flex items-center justify-between gap-3">
-                        <span className="text-white/40">Upstream</span>
-                        <span className="truncate font-mono text-[12px] text-white/50">{m.endpoint}</span>
+                        <span className="text-white/40">Serving</span>
+                        <span className="truncate font-mono text-[12px] text-white/50">{m.status === 'online' ? m.endpoint : (m.hosted_model || 'cloud')}</span>
                       </div>
                       <div className="flex items-center justify-between gap-3">
                         <span className="text-white/40">Published</span>

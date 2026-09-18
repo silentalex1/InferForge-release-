@@ -4,6 +4,8 @@ import {
   deleteRecord,
   deleteStats,
   hashToken,
+  HOSTED_MODEL,
+  HOSTED_MODELS,
   isHttpUrl,
   json,
   publicView,
@@ -93,6 +95,10 @@ export async function onRequest(context: any): Promise<Response> {
     return json({ error: "invalid-fallback", message: "The fallback endpoint must be an http(s) URL." }, 400)
   }
 
+  const system = String(body?.system || "").slice(0, 8000)
+  const requestedHosted = String(body?.hosted_model || "").trim()
+  const hosted_model = HOSTED_MODELS.includes(requestedHosted) ? requestedHosted : HOSTED_MODEL
+
   const existing = await readRecord(kv, slug)
   if (existing && !timingSafeEqual(presentedHash, existing.token_hash)) {
     return json(
@@ -115,6 +121,8 @@ export async function onRequest(context: any): Promise<Response> {
     token_hash: presentedHash,
     created_at: existing?.created_at || now,
     updated_at: now,
+    system,
+    hosted_model,
   }
   await writeRecord(kv, record)
 
@@ -124,6 +132,8 @@ export async function onRequest(context: any): Promise<Response> {
       ok: true,
       ...publicView(record),
       sdk_url: origin + "/sdk/" + slug + ".js",
+      hosted_model,
+      persona_chars: system.length,
       embed: '<script src="' + origin + "/sdk/" + slug + ".js?key=" + key + '&mount=%23inferforge-chat"></script>',
     },
     existing ? 200 : 201

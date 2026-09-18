@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import re
+import shutil
+import subprocess
 import uuid
 from typing import Any
 
@@ -9,6 +11,30 @@ import httpx
 from inferforge.embedded.sdk import SITE_URL
 
 _SLUG_RE = re.compile(r"[^a-z0-9._-]+")
+
+HOSTED_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+
+
+def persona_from_ollama(name: str, timeout: float = 15.0) -> str:
+    if not name or not shutil.which("ollama"):
+        return ""
+    try:
+        out = subprocess.run(
+            ["ollama", "show", name, "--system"],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            encoding="utf-8",
+            errors="replace",
+        )
+    except Exception:
+        return ""
+    if out.returncode != 0:
+        return ""
+    text = (out.stdout or "").strip()
+    if not text or text.lower().startswith("error"):
+        return ""
+    return text[:8000]
 
 
 def sdk_slug(model: str) -> str:
@@ -48,6 +74,8 @@ def publish_sdk(
     endpoint: str,
     fallback: str = "",
     owner: str = "",
+    system: str = "",
+    hosted_model: str = "",
     timeout: float = 20.0,
 ) -> dict[str, Any]:
     payload = {
@@ -57,6 +85,8 @@ def publish_sdk(
         "endpoint": endpoint,
         "fallback": fallback,
         "owner": owner,
+        "system": system,
+        "hosted_model": hosted_model or HOSTED_MODEL,
     }
     try:
         resp = httpx.post(
