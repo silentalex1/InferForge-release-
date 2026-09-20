@@ -67,7 +67,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     users.push(next)
     saveUsers(users)
     setUser({ username, email: lowerE })
-    fetch("https://inferforge-email.asdwwas233.workers.dev/api/auth/register", {
+    fetch("/api/auth/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username, email: lowerE, password }),
@@ -84,7 +84,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { ok: true }
     }
     try {
-      const r = await fetch("https://inferforge-email.asdwwas233.workers.dev/api/auth/login", {
+      const r = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
@@ -102,14 +102,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       return { ok: false, error: j?.error || 'Invalid username or password.' }
     } catch {
-      return { ok: false, error: 'Network error. Check your connection.' }
+      return { ok: false, error: 'Could not reach inferforge.org. Check your connection and try again.' }
     }
   }
 
   const resetPassword = async (username: string, password: string, code: string) => {
     const lowerU = username.toLowerCase()
     try {
-      const r = await fetch("https://inferforge-email.asdwwas233.workers.dev/api/auth/reset", {
+      const r = await fetch("/api/auth/reset", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username: lowerU, password, code }),
@@ -117,7 +117,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const j: any = await r.json().catch(() => ({}))
       if (!r.ok || !j?.ok) return { ok: false, error: j?.error || 'Could not reset the password.' }
     } catch {
-      return { ok: false, error: 'Network error. Check your connection.' }
+      return { ok: false, error: 'Could not reach inferforge.org. Check your connection and try again.' }
     }
     const users = loadUsers()
     const idx = users.findIndex(u => u.username.toLowerCase() === lowerU)

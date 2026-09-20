@@ -15,8 +15,20 @@ from inferforge.core.auth import load_auth_state, save_auth_state
 
 console = Console()
 
+SITE = "https://inferforge.org"
 CONNECT_API = "https://inferforge-email.asdwwas233.workers.dev"
 SITE_URL = "https://inferforge.org/account"
+
+
+def _account_request(method: str, path: str, **kwargs) -> httpx.Response:
+    site_path = path if path.startswith("/api/") else "/api" + path
+    last: httpx.RequestError | None = None
+    for url in (SITE + site_path, CONNECT_API + path):
+        try:
+            return httpx.request(method, url, **kwargs)
+        except httpx.RequestError as exc:
+            last = exc
+    raise last
 
 
 def _gen_code() -> str:
@@ -68,8 +80,9 @@ def connect_command(no_browser: bool, timeout: int) -> None:
 
     with console.status("[cyan]Registering verification session...[/]"):
         try:
-            resp = httpx.post(
-                f"{CONNECT_API}/connect",
+            resp = _account_request(
+                "POST",
+                "/connect",
                 json={"username": username, "code": code},
                 timeout=30.0,
             )
@@ -100,7 +113,7 @@ def connect_command(no_browser: bool, timeout: int) -> None:
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
-            r = httpx.get(f"{CONNECT_API}/connect/{username}", timeout=15.0)
+            r = _account_request("GET", f"/connect/{username}", timeout=15.0)
             if r.is_success:
                 data = r.json()
                 if data.get("confirmed") and data.get("code", "").upper() == code:
@@ -171,8 +184,9 @@ def account_reset_command(username_opt: str | None, no_browser: bool) -> None:
 
     code = _gen_code()
     try:
-        resp = httpx.post(
-            f"{CONNECT_API}/api/auth/reset-request",
+        resp = _account_request(
+            "POST",
+            "/api/auth/reset-request",
             json={"username": username, "code": code},
             timeout=30.0,
         )

@@ -3,7 +3,6 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { AlertTriangle, ArrowRight, CheckCircle2, LayoutDashboard, Loader2, ShieldCheck } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 
-const CONNECT_API = 'https://inferforge-email.asdwwas233.workers.dev'
 
 type Step = 'checking' | 'signed-in' | 'need-account' | 'code' | 'confirmed' | 'error'
 
@@ -56,7 +55,7 @@ export default function Account() {
       return
     }
 
-    fetch(`${CONNECT_API}/api/auth/user/${encodeURIComponent(verifyUsername)}`)
+    fetch(`/api/auth/user/${encodeURIComponent(verifyUsername)}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((data: any) => {
         if (cancelled) return
@@ -103,7 +102,7 @@ export default function Account() {
     }
     setLoading(true)
     try {
-      const res = await fetch(`${CONNECT_API}/connect`, {
+      const res = await fetch('/api/connect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, code: code.trim().toUpperCase(), email, confirm: true }),
