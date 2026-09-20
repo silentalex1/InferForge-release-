@@ -1,3 +1,5 @@
+import { createSession } from "../../../lib/sdk/store"
+
 const UPSTREAM = "https://inferforge-email.asdwwas233.workers.dev"
 
 export async function onRequest(context: any): Promise<Response> {
@@ -28,7 +30,18 @@ export async function onRequest(context: any): Promise<Response> {
     })
   }
 
-  const body = await upstream.text()
+  let body = await upstream.text()
+
+  if (upstream.ok && segments[0] === "login") {
+    try {
+      const parsed = JSON.parse(body)
+      if (parsed?.ok && parsed?.user?.username) {
+        const session = await createSession(context.env.INFERFORGE_SDK, parsed.user.username)
+        if (session) body = JSON.stringify({ ...parsed, session })
+      }
+    } catch {}
+  }
+
   return new Response(body, {
     status: upstream.status >= 500 ? 424 : upstream.status,
     headers: {

@@ -1,7 +1,7 @@
 import {
   corsHeaders,
+  accountRole,
   HOSTED_MODEL,
-  isPremium,
   isPrivateHost,
   json,
   listRecords,
@@ -99,11 +99,13 @@ export async function onRequest(context: any): Promise<Response> {
     { requests: 0, today: 0, failed: 0, online: 0 }
   )
 
-  const premium = owner ? await isPremium(kv, owner) : false
+  const role = owner ? await accountRole(kv, owner) : 'free'
+  const premium = role !== 'free'
 
   return json(
     {
       owner: owner || null,
+      role,
       premium,
       limit: premium ? null : FREE_MODEL_LIMIT,
       count: models.length,

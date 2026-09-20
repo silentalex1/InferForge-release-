@@ -157,10 +157,34 @@ export async function removeOwnerSlug(kv: any, owner: string, slug: string): Pro
   await kv.put(ownerKey(owner), JSON.stringify(next))
 }
 
+export type AccountRole = "owner" | "premium" | "free"
+
+export async function accountRole(kv: any, owner: string): Promise<AccountRole> {
+  if (!kv || !owner) return "free"
+  const name = owner.trim().toLowerCase()
+  const role = await kv.get("role:" + name)
+  if (role === "owner" || role === "premium") return role
+  const legacy = await kv.get("premium:" + name)
+  return legacy ? "premium" : "free"
+}
+
 export async function isPremium(kv: any, owner: string): Promise<boolean> {
-  if (!kv || !owner) return false
-  const flag = await kv.get("premium:" + owner.trim().toLowerCase())
-  return Boolean(flag)
+  return (await accountRole(kv, owner)) !== "free"
+}
+
+export const SESSION_TTL = 2592000
+
+export async function createSession(kv: any, username: string): Promise<string> {
+  if (!kv || !username) return ""
+  const token = "sess-" + crypto.randomUUID().replace(/-/g, "")
+  await kv.put("session:" + token, username.trim().toLowerCase(), { expirationTtl: SESSION_TTL })
+  return token
+}
+
+export async function sessionUser(kv: any, token: string): Promise<string> {
+  if (!kv || !token) return ""
+  const raw = await kv.get("session:" + String(token).trim())
+  return raw || ""
 }
 
 export interface SdkStats {

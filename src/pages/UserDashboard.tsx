@@ -15,9 +15,11 @@ import {
   RefreshCw,
   Server,
   Settings,
+  Trash2,
   Zap,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
+import DeleteModelDialog from '../components/DeleteModelDialog'
 
 type Requests = {
   total: number
@@ -49,6 +51,7 @@ type Model = {
 
 type Payload = {
   count: number
+  role: 'owner' | 'premium' | 'free'
   premium: boolean
   limit: number | null
   totals: { requests: number; today: number; failed: number; online: number }
@@ -162,6 +165,7 @@ export default function UserDashboard() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const [pendingDelete, setPendingDelete] = useState<Model | null>(null)
 
   const owner = user?.username || ''
 
@@ -201,6 +205,13 @@ export default function UserDashboard() {
 
   const totals = data?.totals ?? { requests: 0, today: 0, failed: 0, online: 0 }
   const active = location.hash || '#overview'
+  const role = data?.role ?? 'free'
+  const roleBadge =
+    role === 'owner'
+      ? { label: 'Owner', cls: 'border-violet-400/40 bg-violet-400/15 text-violet-200', hint: 'Full access, unlimited models.' }
+      : role === 'premium'
+        ? { label: 'Premium', cls: 'border-amber-400/40 bg-amber-400/15 text-amber-200', hint: 'Unlimited hosted models.' }
+        : { label: 'Free', cls: 'border-white/15 bg-white/5 text-white/60', hint: (data?.count ?? 0) + ' of ' + (data?.limit ?? 2) + ' models used.' }
 
   const nav = [
     { href: '#overview', label: 'Overview', icon: LayoutDashboard },
@@ -253,12 +264,13 @@ export default function UserDashboard() {
               <p className="mt-1.5 text-[11px] leading-relaxed text-white/30">
                 {totals.online} on own weights, {(data?.count ?? 0) - totals.online} hosted on cloud.
               </p>
-              <p className="mt-3 flex items-center gap-2 border-t border-white/[0.07] pt-3 text-[11px] text-white/40">
-                <Crown className={`h-3.5 w-3.5 ${data?.premium ? 'text-amber-300' : 'text-white/25'}`} />
-                {data?.premium
-                  ? 'Premium, unlimited models'
-                  : 'Free plan, ' + (data?.count ?? 0) + ' of ' + (data?.limit ?? 2) + ' models used'}
-              </p>
+              <div className="mt-3 border-t border-white/[0.07] pt-3">
+                <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ${roleBadge.cls}`}>
+                  <Crown className="h-3 w-3" />
+                  {roleBadge.label}
+                </span>
+                <p className="mt-2 text-[11px] text-white/35">{roleBadge.hint}</p>
+              </div>
             </div>
           </div>
         </aside>
@@ -364,6 +376,14 @@ export default function UserDashboard() {
                         SDK
                         <ExternalLink className="h-3.5 w-3.5" />
                       </a>
+                      <button
+                        type="button"
+                        onClick={() => setPendingDelete(m)}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-rose-400/30 px-3.5 py-2 text-[13px] font-medium text-rose-300 transition hover:border-rose-400/60 hover:bg-rose-400/10"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        Delete
+                      </button>
                     </div>
                   </div>
 
@@ -470,6 +490,19 @@ export default function UserDashboard() {
           </div>
         </div>
       </div>
+
+      {pendingDelete && (
+        <DeleteModelDialog
+          model={pendingDelete.model}
+          slug={pendingDelete.slug}
+          session={user.session}
+          onClose={() => setPendingDelete(null)}
+          onDeleted={() => {
+            setPendingDelete(null)
+            load(true)
+          }}
+        />
+      )}
     </div>
   )
 }

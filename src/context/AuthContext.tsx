@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
 
-type User = { username: string; email: string }
+type User = { username: string; email: string; session?: string }
 
 type StoredUser = User & { password: string }
 
@@ -91,7 +91,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       })
       const j: any = await r.json().catch(() => ({}))
       if (r.ok && j?.ok && j.user) {
-        const u = { username: j.user.username, email: j.user.email }
+        const u = { username: j.user.username, email: j.user.email, session: j.session || undefined }
         const all = loadUsers()
         if (!all.some(x => x.username.toLowerCase() === u.username.toLowerCase())) {
           all.push({ ...u, password } as StoredUser)

@@ -171,10 +171,9 @@ export default function Home() {
           </h1>
 
           <p className="mt-6 max-w-2xl text-[17px] leading-relaxed text-white/60 md:text-[19px]">
-            InferForge is a local AI platform and CLI for running, training, merging and deploying
-            large language models on your own machine. One <span className="font-mono text-amber-200">forge</span> command
-            covers the whole path: a self-hosted model runner, a fine-tuning engine and an agent
-            runtime in a single tool.
+            InferForge is a local AI platform and CLI for running, training, merging, and deploying
+            large language models. Use it fully self-hosted on your machine, or publish models to
+            InferForge and get 24/7 hosted endpoints and embeddable SDKs.
           </p>
 
           <div className="mt-9 flex flex-col gap-3 sm:flex-row sm:items-center">
