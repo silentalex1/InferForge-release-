@@ -117,6 +117,52 @@ export async function listRecords(kv: any, limit = 200): Promise<SdkRecord[]> {
   return out
 }
 
+export const OWNER_PREFIX = "owner:"
+
+export function ownerKey(owner: string): string {
+  return OWNER_PREFIX + String(owner || "").trim().toLowerCase()
+}
+
+export async function ownerSlugs(kv: any, owner: string): Promise<string[]> {
+  if (!kv || !owner) return []
+  const key = ownerKey(owner)
+  const raw = await kv.get(key)
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw)
+      if (Array.isArray(parsed)) return parsed.map(String)
+    } catch {}
+  }
+  const all = await listRecords(kv)
+  const slugs = all
+    .filter((r) => (r.owner || "").toLowerCase() === owner.trim().toLowerCase())
+    .map((r) => r.slug)
+  await kv.put(key, JSON.stringify(slugs))
+  return slugs
+}
+
+export async function addOwnerSlug(kv: any, owner: string, slug: string): Promise<void> {
+  if (!kv || !owner) return
+  const slugs = await ownerSlugs(kv, owner)
+  if (slugs.includes(slug)) return
+  slugs.push(slug)
+  await kv.put(ownerKey(owner), JSON.stringify(slugs))
+}
+
+export async function removeOwnerSlug(kv: any, owner: string, slug: string): Promise<void> {
+  if (!kv || !owner) return
+  const slugs = await ownerSlugs(kv, owner)
+  const next = slugs.filter((s) => s !== slug)
+  if (next.length === slugs.length) return
+  await kv.put(ownerKey(owner), JSON.stringify(next))
+}
+
+export async function isPremium(kv: any, owner: string): Promise<boolean> {
+  if (!kv || !owner) return false
+  const flag = await kv.get("premium:" + owner.trim().toLowerCase())
+  return Boolean(flag)
+}
+
 export interface SdkStats {
   slug: string
   total: number

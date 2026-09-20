@@ -6,6 +6,7 @@ import {
   Boxes,
   Check,
   Copy,
+  Crown,
   ExternalLink,
   KeyRound,
   LayoutDashboard,
@@ -48,6 +49,8 @@ type Model = {
 
 type Payload = {
   count: number
+  premium: boolean
+  limit: number | null
   totals: { requests: number; today: number; failed: number; online: number }
   checked_at: string
   models: Model[]
@@ -249,6 +252,12 @@ export default function UserDashboard() {
               </p>
               <p className="mt-1.5 text-[11px] leading-relaxed text-white/30">
                 {totals.online} on own weights, {(data?.count ?? 0) - totals.online} hosted on cloud.
+              </p>
+              <p className="mt-3 flex items-center gap-2 border-t border-white/[0.07] pt-3 text-[11px] text-white/40">
+                <Crown className={`h-3.5 w-3.5 ${data?.premium ? 'text-amber-300' : 'text-white/25'}`} />
+                {data?.premium
+                  ? 'Premium, unlimited models'
+                  : 'Free plan, ' + (data?.count ?? 0) + ' of ' + (data?.limit ?? 2) + ' models used'}
               </p>
             </div>
           </div>

@@ -1,6 +1,7 @@
 import {
   corsHeaders,
   HOSTED_MODEL,
+  isPremium,
   isPrivateHost,
   json,
   listRecords,
@@ -10,6 +11,8 @@ import {
   today,
 } from "../../../lib/sdk/store"
 import type { SdkRecord } from "../../../lib/sdk/store"
+
+const FREE_MODEL_LIMIT = 2
 
 export async function onRequest(context: any): Promise<Response> {
   const request: Request = context.request
@@ -96,9 +99,13 @@ export async function onRequest(context: any): Promise<Response> {
     { requests: 0, today: 0, failed: 0, online: 0 }
   )
 
+  const premium = owner ? await isPremium(kv, owner) : false
+
   return json(
     {
       owner: owner || null,
+      premium,
+      limit: premium ? null : FREE_MODEL_LIMIT,
       count: models.length,
       totals,
       checked_at: new Date().toISOString(),
