@@ -84,7 +84,7 @@ export default function Footer() {
 
         <div className="mt-12 flex flex-col items-center justify-between gap-3 border-t border-white/[0.07] pt-6 sm:flex-row">
           <span className="text-[12px] text-white/30">© {year} InferForge</span>
-          <span className="font-mono text-[12px] text-white/25">v0.2.0-beta.1</span>
+          <span className="font-mono text-[12px] text-white/25">v0.2.4</span>
         </div>
       </div>
     </footer>

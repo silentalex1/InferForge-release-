@@ -33,7 +33,7 @@ export default function Navbar() {
             </span>
             <span className="text-[15px] font-bold tracking-tight text-white">InferForge</span>
             <span className="hidden items-center rounded-full border border-amber-400/20 bg-amber-400/15 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-amber-300 sm:inline-flex">
-              v0.2.0-beta.1
+              v0.2.4
             </span>
           </Link>
 

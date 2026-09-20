@@ -106,7 +106,8 @@ def publish_sdk(
         return {"ok": True, **body}
     detail = resp.text.strip()
     try:
-        detail = resp.json().get("error", detail)
+        body = resp.json()
+        detail = body.get("message") or body.get("error") or detail
     except ValueError:
         pass
     return {"ok": False, "status": resp.status_code, "error": detail or f"HTTP {resp.status_code}"}

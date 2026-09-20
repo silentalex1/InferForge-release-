@@ -8,6 +8,7 @@ import {
   HOSTED_MODELS,
   isHttpUrl,
   json,
+  listRecords,
   publicView,
   readRecord,
   slugify,
@@ -17,6 +18,8 @@ import {
 import type { SdkRecord } from "../../../lib/sdk/store"
 
 const MAX_MODEL_LENGTH = 96
+
+const FREE_MODEL_LIMIT = 2
 
 function token(request: Request): string {
   return (request.headers.get("x-forge-token") || "").trim()
@@ -110,6 +113,30 @@ export async function onRequest(context: any): Promise<Response> {
     )
   }
 
+  const owner = String(body?.owner || "").trim().slice(0, 64)
+
+  if (!existing && owner) {
+    const premium = await kv.get("premium:" + owner.toLowerCase())
+    if (!premium) {
+      const all = await listRecords(kv)
+      const mine = all.filter((r) => (r.owner || "").toLowerCase() === owner.toLowerCase())
+      if (mine.length >= FREE_MODEL_LIMIT) {
+        return json(
+          {
+            error: "model-limit-reached",
+            limit: FREE_MODEL_LIMIT,
+            hosted: mine.length,
+            message:
+              "The free plan hosts up to " + FREE_MODEL_LIMIT + " AI models and you already have " + mine.length +
+              " (" + mine.map((r) => r.slug).join(", ") + "). Unpublish one with 'forge embedd <model> --sdk --unpublish', " +
+              "or upgrade at https://inferforge.org/pricing for unlimited models.",
+          },
+          403
+        )
+      }
+    }
+  }
+
   const now = new Date().toISOString()
   const record: SdkRecord = {
     model,
@@ -117,7 +144,7 @@ export async function onRequest(context: any): Promise<Response> {
     key,
     endpoint,
     fallback,
-    owner: String(body?.owner || "").trim().slice(0, 64),
+    owner,
     token_hash: presentedHash,
     created_at: existing?.created_at || now,
     updated_at: now,

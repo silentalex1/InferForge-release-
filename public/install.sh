@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 INDEX="https://hyperneural.cfd/pypi/simple/"
-WHEEL="https://inferforge.org/pypi/packages/inferforge-0.2.3-py3-none-any.whl"
+WHEEL="https://inferforge.org/pypi/packages/inferforge-0.2.4-py3-none-any.whl"
 
 echo ""
 echo "  InferForge Installer"

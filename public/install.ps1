@@ -1,7 +1,7 @@
 [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
 $ErrorActionPreference = "Stop"
 $Index = "https://hyperneural.cfd/pypi/simple/"
-$Wheel = "https://inferforge.org/pypi/packages/inferforge-0.2.3-py3-none-any.whl"
+$Wheel = "https://inferforge.org/pypi/packages/inferforge-0.2.4-py3-none-any.whl"
 
 function Find-Python {
     foreach ($cmd in @("py -3", "python", "python3")) {
